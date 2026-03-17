@@ -1,3 +1,18 @@
+# Trading Logic:
+
+Momentum trade
+- model predicts positive return
+- regime is trending
+- breakout is active
+- imbalance confirms
+
+Mean reversion trade
+- model predicts reversal
+- regime is ranging
+- breakout is not active
+- price is stretched away from mean
+- imbalance not strongly against
+
 # RoostooPublicAPI
 
 # API SERVICE
