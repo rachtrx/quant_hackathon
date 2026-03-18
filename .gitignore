@@ -37,4 +37,6 @@ env.bak/
 venv.bak/
 
 # Data
+user_data/data
 binance_data/
+*.log

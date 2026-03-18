@@ -1,0 +1,13 @@
+{
+  "exchange": {
+    "name": "binance",
+    "ccxt_config": {},
+    "ccxt_async_config": {}
+  },
+  "dry_run": true,
+  "timeframe": "1m",
+  "datadir": "user_data/data",
+  "stake_currency": "USDT",
+  "stake_amount": 1000,
+  "pair_whitelist": ["BTC/USDT"]
+}

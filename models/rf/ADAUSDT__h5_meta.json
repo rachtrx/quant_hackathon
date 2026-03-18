@@ -1,0 +1,33 @@
+{
+  "symbol": "ADAUSDT",
+  "target_horizon": 5,
+  "target_col": "target_ret_fwd_5",
+  "model_type": "rf",
+  "study_best_value": 0.04749536832169843,
+  "model_params": {
+    "n_estimators": 100,
+    "max_depth": 9,
+    "min_samples_split": 10,
+    "min_samples_leaf": 17,
+    "max_features": "sqrt",
+    "bootstrap": true,
+    "random_state": 42,
+    "n_jobs": -1
+  },
+  "n_features": 30,
+  "feature_cols_path": "models/rf/ADAUSDT__h5_feature_cols.json",
+  "model_path": "models/rf/ADAUSDT__h5_model.joblib",
+  "feature_importance_path": "models/rf/ADAUSDT__h5_feature_importance.csv",
+  "train_ic": 0.42251514601704937,
+  "test_ic": -0.015871246076740602,
+  "train_rank_ic": 0.05479747593592504,
+  "test_rank_ic": 0.03190299426937175,
+  "train_rmse": 0.003523036061981368,
+  "test_rmse": 0.0025034386591682523,
+  "train_start_time": "2025-09-01T01:13:00+00:00",
+  "train_end_time": "2026-02-06T03:01:00+00:00",
+  "val_start_time": "2026-01-05T10:34:00+00:00",
+  "val_end_time": "2026-02-06T03:01:00+00:00",
+  "test_start_time": "2026-02-06T03:02:00+00:00",
+  "test_end_time": "2026-03-17T16:33:00+00:00"
+}

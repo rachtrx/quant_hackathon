@@ -6,7 +6,24 @@ import zipfile
 import pandas as pd
 import requests
 
-from constants import BINANCE_SPOT_KLINES_API_URL, BINANCE_SPOT_KLINES_VISION_URL, DATA_DIR, RAW_DIR, SYMBOLS, INTERVAL, MONTHS, MARKET
+from constants import (
+    BINANCE_SPOT_KLINES_API_URL,
+    BINANCE_SPOT_KLINES_VISION_URL,
+    DATA_DIR,
+    RAW_DIR,
+    SYMBOLS,
+    INTERVAL,
+    MONTHS,
+    MARKET,
+)
+
+# --------------------------------------------------
+# CUTOFF: only keep/download data up to 2026-03-17
+# --------------------------------------------------
+CUTOFF_DATE = pd.Timestamp("2026-03-17", tz="UTC")
+# include the full day of 17 March
+CUTOFF_END = CUTOFF_DATE + pd.Timedelta(days=1) - pd.Timedelta(microseconds=1)
+
 
 def make_dirs() -> None:
     os.makedirs(RAW_DIR, exist_ok=True)
@@ -23,10 +40,10 @@ def build_binance_vision_url(
         base = f"{BINANCE_SPOT_KLINES_VISION_URL}/{freq}/klines/{symbol}/{interval}"
     else:
         raise NotImplementedError()
-        # base = f"https://data.binance.vision/data/futures/um/{freq}/klines/{symbol}/{interval}"
 
     filename = f"{symbol}-{interval}-{date_str}.zip"
     return f"{base}/{filename}"
+
 
 def try_roll_previous_month_daily_into_monthly(
     symbol: str,
@@ -37,7 +54,6 @@ def try_roll_previous_month_daily_into_monthly(
     prev_month = (now_utc.to_period("M") - 1)
     prev_month_str = str(prev_month)
 
-    # Only meaningful once we're no longer in that month
     monthly_out_dir = os.path.join(RAW_DIR, "monthly")
     daily_out_dir = os.path.join(RAW_DIR, "daily")
     os.makedirs(monthly_out_dir, exist_ok=True)
@@ -56,7 +72,6 @@ def try_roll_previous_month_daily_into_monthly(
         print(f"[rollup] previous month monthly zip not available yet: {exc}")
         return
 
-    # Only delete previous-month daily zips after monthly download succeeds
     prefix = f"{symbol}-{interval}-{prev_month_str}-"
     deleted = 0
     if os.path.exists(daily_out_dir):
@@ -70,6 +85,7 @@ def try_roll_previous_month_daily_into_monthly(
                     print(f"[warn] failed deleting {path}: {exc}")
 
     print(f"[rollup] deleted {deleted} previous-month daily zips for {prev_month_str}")
+
 
 def download_one_archive(
     symbol: str,
@@ -125,19 +141,12 @@ def download_many_archives(
 
 
 def _infer_public_time_unit(series: pd.Series, market: str) -> str:
-    """
-    Binance public spot data moved to microseconds from 2025-01-01 onward.
-    Heuristic:
-      - 16-digit-ish -> microseconds
-      - 13-digit-ish -> milliseconds
-    """
     s = pd.to_numeric(series, errors="coerce").dropna()
     if s.empty:
         return "ms"
 
     sample = int(s.iloc[0])
 
-    # ~2025 in microseconds is around 1.7e15, milliseconds around 1.7e12
     if market == "spot" and sample >= 10**15:
         return "us"
     return "ms"
@@ -181,7 +190,6 @@ def read_kline_zip(zip_path: str, market: str = "spot") -> pd.DataFrame:
     for col in numeric_cols:
         df[col] = pd.to_numeric(df[col], errors="coerce")
 
-    # Public ZIP timestamps can be ms or us depending on source/date.
     time_unit = _infer_public_time_unit(df["open_time"], market=market)
     df["open_time"] = pd.to_datetime(pd.to_numeric(df["open_time"], errors="coerce"), unit=time_unit, utc=True)
     df["close_time"] = pd.to_datetime(pd.to_numeric(df["close_time"], errors="coerce"), unit=time_unit, utc=True)
@@ -190,14 +198,20 @@ def read_kline_zip(zip_path: str, market: str = "spot") -> pd.DataFrame:
     return df
 
 
-def combine_and_save_parquet(frames: list[pd.DataFrame], parquet_path: str) -> pd.DataFrame:
+def combine_and_save_parquet(
+    frames: list[pd.DataFrame],
+    parquet_path: str,
+    cutoff_end: pd.Timestamp | None = None,
+) -> pd.DataFrame:
     if not frames:
         raise ValueError("No dataframes were loaded.")
 
     df = pd.concat(frames, axis=0, ignore_index=True)
     df = df.drop_duplicates(subset=["open_time"]).sort_values("open_time").reset_index(drop=True)
 
-    # drop useless mixed-type column
+    if cutoff_end is not None:
+        df = df[df["open_time"] <= cutoff_end].copy()
+
     if "ignore" in df.columns:
         df = df.drop(columns=["ignore"])
 
@@ -271,10 +285,10 @@ def fetch_recent_klines_rest(
     for col in numeric_cols:
         df[col] = pd.to_numeric(df[col], errors="coerce")
 
-    # REST klines are standard epoch milliseconds.
     df["open_time"] = pd.to_datetime(pd.to_numeric(df["open_time"]), unit="ms", utc=True)
     df["close_time"] = pd.to_datetime(pd.to_numeric(df["close_time"]), unit="ms", utc=True)
     return df.sort_values("open_time").reset_index(drop=True)
+
 
 def refresh_latest_data(
     symbol: str,
@@ -282,6 +296,7 @@ def refresh_latest_data(
     market: str,
     parquet_path: str,
     base_months: list[str],
+    cutoff_end: pd.Timestamp | None = None,
 ) -> pd.DataFrame:
     """
     Refresh strategy:
@@ -292,15 +307,8 @@ def refresh_latest_data(
       5) merge and save
     """
     make_dirs()
-    try_roll_previous_month_daily_into_monthly(
-        symbol=symbol,
-        interval=interval,
-        market=market,
-    )
-
     frames: list[pd.DataFrame] = []
 
-    # Existing parquet
     existing = None
     if os.path.exists(parquet_path):
         print(f"[load] existing parquet: {parquet_path}")
@@ -308,9 +316,12 @@ def refresh_latest_data(
         if not existing.empty:
             existing["open_time"] = pd.to_datetime(existing["open_time"], utc=True)
             existing["close_time"] = pd.to_datetime(existing["close_time"], utc=True, errors="coerce")
+
+            if cutoff_end is not None:
+                existing = existing[existing["open_time"] <= cutoff_end].copy()
+
             frames.append(existing)
 
-    # Base monthly archives
     monthly_paths = download_many_archives(
         symbol=symbol,
         interval=interval,
@@ -320,12 +331,15 @@ def refresh_latest_data(
     )
     for path in monthly_paths:
         print(f"[read] {path}")
-        frames.append(read_kline_zip(path, market=market))
+        df_month = read_kline_zip(path, market=market)
+        if cutoff_end is not None:
+            df_month = df_month[df_month["open_time"] <= cutoff_end].copy()
+        frames.append(df_month)
 
-    # Current month daily archives (completed days only)
-    now_utc = pd.Timestamp.now(tz="UTC")
-    first_day_of_month = now_utc.normalize().replace(day=1)
-    yesterday = (now_utc - pd.Timedelta(days=1)).normalize()
+    # Use cutoff instead of "now" for current-month daily downloads
+    effective_now = cutoff_end if cutoff_end is not None else pd.Timestamp.now(tz="UTC")
+    first_day_of_month = effective_now.normalize().replace(day=1)
+    yesterday = (effective_now - pd.Timedelta(days=1)).normalize()
 
     if yesterday >= first_day_of_month:
         daily_strs = day_strings_between(first_day_of_month, yesterday)
@@ -338,9 +352,11 @@ def refresh_latest_data(
         )
         for path in daily_paths:
             print(f"[read] {path}")
-            frames.append(read_kline_zip(path, market=market))
+            df_day = read_kline_zip(path, market=market)
+            if cutoff_end is not None:
+                df_day = df_day[df_day["open_time"] <= cutoff_end].copy()
+            frames.append(df_day)
 
-    # Merge what we have so far to determine last timestamp
     merged = pd.concat(frames, ignore_index=True) if frames else pd.DataFrame()
     if not merged.empty:
         merged = merged.drop_duplicates(subset=["open_time"]).sort_values("open_time").reset_index(drop=True)
@@ -349,36 +365,40 @@ def refresh_latest_data(
     else:
         start_ms = None
 
-    # Pull latest recent klines from REST
-    # For spot, REST endpoint is /api/v3/klines.
-    # If you later use futures, switch endpoint accordingly.
+    end_ms = int(cutoff_end.timestamp() * 1000) if cutoff_end is not None else None
+
     latest_rest = fetch_recent_klines_rest(
         symbol=symbol,
         interval=interval,
         start_time_ms=start_ms,
+        end_time_ms=end_ms,
         limit=1000,
     )
     if not latest_rest.empty:
+        if cutoff_end is not None:
+            latest_rest = latest_rest[latest_rest["open_time"] <= cutoff_end].copy()
         print(f"[info] pulled {len(latest_rest):,} recent REST klines")
         frames.append(latest_rest)
 
-    final_df = combine_and_save_parquet(frames, parquet_path)
+    final_df = combine_and_save_parquet(frames, parquet_path, cutoff_end=cutoff_end)
     return final_df
 
 
 def main() -> None:
     for symbol in SYMBOLS:
-        parquet_path=os.path.join(DATA_DIR, f"{symbol}_{INTERVAL}.parquet")
+        parquet_path = os.path.join(DATA_DIR, f"{symbol}_{INTERVAL}.parquet")
         df = refresh_latest_data(
             symbol=symbol,
             interval=INTERVAL,
             market=MARKET,
             parquet_path=parquet_path,
             base_months=MONTHS,
+            cutoff_end=CUTOFF_END,
         )
         print(f"[info] rows after refresh: {len(df):,}")
         print(df.tail())
         time.sleep(10)
+
 
 if __name__ == "__main__":
     main()
