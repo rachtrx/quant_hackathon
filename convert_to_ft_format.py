@@ -12,21 +12,32 @@ def symbol_to_pair(symbol: str) -> str:
         return symbol[:-4] + "/USDT"
     raise ValueError(f"Unsupported symbol: {symbol}")
 
+os.makedirs(OUT_DIR, exist_ok=True)
+
 for symbol in SYMBOLS:
     df = pd.read_parquet(os.path.join(DATA_DIR, f"{symbol}_{INTERVAL}.parquet"))
 
+    # keep only required columns
     df = df[["open_time", "open", "high", "low", "close", "volume"]].copy()
+
+    # convert to datetime (IMPORTANT)
     df["open_time"] = pd.to_datetime(df["open_time"], utc=True)
 
-    pair = symbol_to_pair(symbol)   # BTC/USDT
+    # rename to freqtrade format
+    df = df.rename(columns={"open_time": "date"})
+
+    # sort + clean
+    df = df.sort_values("date").drop_duplicates("date").reset_index(drop=True)
+
+    # convert symbol → BTC_USDT
+    pair = symbol_to_pair(symbol)
     base, quote = pair.split("/")
+    pair_name = f"{base}_{quote}"
 
-    out_dir = os.path.join(OUT_DIR, base)
-    os.makedirs(out_dir, exist_ok=True)
-    out_path = os.path.join(out_dir, f"{quote}-{INTERVAL}.json")
+    # correct filename
+    out_path = os.path.join(OUT_DIR, f"{pair_name}-{INTERVAL}.parquet")
 
-    export_df = df.rename(columns={"open_time": "date"})
-    export_df["date"] = export_df["date"].astype("int64") // 10**6
+    # save parquet
+    df.to_parquet(out_path, index=False)
 
-    export_df.to_json(out_path, orient="values")
     print("saved:", out_path)
