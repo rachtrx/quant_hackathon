@@ -18,6 +18,7 @@
   "range_ratio",
   "trend_strength",
   "vol_regime_ratio",
+  "is_trending",
   "imbalance_5",
   "imbalance_15",
   "volume_z"

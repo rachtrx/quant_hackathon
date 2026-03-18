@@ -97,6 +97,8 @@ def add_features(df: pd.DataFrame, target_horizon: int) -> tuple[pd.DataFrame, l
     df["trend_strength"] = calc_trend_strength(df)
     df["vol_regime_ratio"] = calc_vol_regime_ratio(df)
 
+    df["is_trending"] = calc_is_trending(df["trend_strength"])
+
     df.replace([np.inf, -np.inf], np.nan, inplace=True)
 
     feature_cols = [
@@ -105,7 +107,7 @@ def add_features(df: pd.DataFrame, target_horizon: int) -> tuple[pd.DataFrame, l
         "dist_ma_5", "dist_ma_15", "dist_ma_30", "dist_ma_15_z",
         "vol_5", "vol_15", "vol_30", "vol_ratio_5_30",
         "bar_range", "range_5", "range_15", "range_ratio",
-        "trend_strength", "vol_regime_ratio",
+        "trend_strength", "vol_regime_ratio", "is_trending",
         "imbalance_5", "imbalance_15",
         "volume_z",
     ]
