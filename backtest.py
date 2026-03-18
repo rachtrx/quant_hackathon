@@ -1,3 +1,5 @@
+# NOT TESTED, PLANNING TO USE FREQ_TRADE (see backtest.sh and user_data/strategies)
+
 import os
 import joblib
 import json
