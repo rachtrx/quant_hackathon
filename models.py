@@ -8,14 +8,12 @@ from xgboost import XGBRegressor
 
 def _rf_objective(trial: optuna.Trial, X_train, y_train, X_valid, y_valid) -> float:
     params = {
-        "n_estimators": trial.suggest_int("n_estimators", 100, 800, step=100),
-        "max_depth": trial.suggest_int("max_depth", 3, 20),
-        "min_samples_split": trial.suggest_int("min_samples_split", 2, 30),
-        "min_samples_leaf": trial.suggest_int("min_samples_leaf", 1, 20),
-        "max_features": trial.suggest_categorical(
-            "max_features", ["sqrt", "log2", 0.3, 0.5, 0.8, 1.0]
-        ),
-        "bootstrap": trial.suggest_categorical("bootstrap", [True, False]),
+        "n_estimators": trial.suggest_int("n_estimators", 50, 200, step=50),  # Lower max
+        "max_depth": trial.suggest_int("max_depth", 3, 6),  # Tighter range
+        "min_samples_split": trial.suggest_int("min_samples_split", 100, 200),  # Higher min
+        "min_samples_leaf": trial.suggest_int("min_samples_leaf", 50, 100),  # Higher min
+        "max_features": trial.suggest_categorical("max_features", ["sqrt"]),  # Fewer options
+        "bootstrap": True,
         "random_state": 42,
         "n_jobs": -1,
     }
@@ -34,6 +32,10 @@ def _rf_objective(trial: optuna.Trial, X_train, y_train, X_valid, y_valid) -> fl
     trial.set_user_attr("rmse", rmse)
     trial.set_user_attr("ic", ic)
     trial.set_user_attr("rank_ic", ric)
+
+    trial.report(ric, step=0)
+    if trial.should_prune():
+        raise optuna.TrialPruned()
 
     return ric
 
@@ -75,6 +77,10 @@ def _xgb_objective(trial: optuna.Trial, X_train, y_train, X_valid, y_valid) -> f
     trial.set_user_attr("rmse", rmse)
     trial.set_user_attr("ic", ic)
     trial.set_user_attr("rank_ic", ric)
+
+    trial.report(ric, step=0)
+    if trial.should_prune():
+        raise optuna.TrialPruned()
 
     return ric
 

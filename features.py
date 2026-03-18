@@ -50,7 +50,6 @@ def add_features(df: pd.DataFrame, target_horizon: int) -> tuple[pd.DataFrame, l
         df[f"mom_{w}"] = df["close"].pct_change(w)
 
     df["volume_mom_5"] = df["volume"].pct_change(5)
-    df["num_trades_mom_5"] = df["num_trades"].pct_change(5)
 
     for w in vol_windows:
         df[f"vol_{w}"] = df["ret_1"].rolling(w).std()
@@ -83,10 +82,6 @@ def add_features(df: pd.DataFrame, target_horizon: int) -> tuple[pd.DataFrame, l
     df["volume_std_20"] = df["volume"].rolling(20).std()
     df["volume_z"] = (df["volume"] - df["volume_ma_20"]) / (df["volume_std_20"] + EPS)
 
-    df["trades_ma_20"] = df["num_trades"].rolling(20).mean()
-    df["trades_std_20"] = df["num_trades"].rolling(20).std()
-    df["trades_z"] = (df["num_trades"] - df["trades_ma_20"]) / (df["trades_std_20"] + EPS)
-
     volume_nonzero = df["volume"].replace(0, np.nan)
 
     df["taker_sell_base_asset_volume"] = df["volume"] - df["taker_buy_base_asset_volume"]
@@ -102,25 +97,17 @@ def add_features(df: pd.DataFrame, target_horizon: int) -> tuple[pd.DataFrame, l
     df["trend_strength"] = calc_trend_strength(df)
     df["vol_regime_ratio"] = calc_vol_regime_ratio(df)
 
-    df["is_trending"] = calc_is_trending(df["trend_strength"])
-    df["is_high_vol"] = calc_is_high_vol(df["vol_regime_ratio"])
-
-    df["mom_x_imb"] = df["mom_5"] * df["imbalance_5"]
-    df["mr_x_vol"] = df["dist_ma_15_z"] * df["vol_ratio_5_30"]
-    df["trend_x_imb"] = df["trend_strength"] * df["imbalance_5"]
-
     df.replace([np.inf, -np.inf], np.nan, inplace=True)
 
     feature_cols = [
         "mom_3", "mom_5", "mom_10", "mom_15",
-        "volume_mom_5", "num_trades_mom_5",
+        "volume_mom_5",
         "dist_ma_5", "dist_ma_15", "dist_ma_30", "dist_ma_15_z",
         "vol_5", "vol_15", "vol_30", "vol_ratio_5_30",
         "bar_range", "range_5", "range_15", "range_ratio",
-        "trend_strength", "vol_regime_ratio", "is_trending", "is_high_vol",
-        "imbalance", "imbalance_5", "imbalance_15",
-        "volume_z", "trades_z",
-        "mom_x_imb", "mr_x_vol", "trend_x_imb",
+        "trend_strength", "vol_regime_ratio",
+        "imbalance_5", "imbalance_15",
+        "volume_z",
     ]
 
     return df, feature_cols

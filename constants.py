@@ -1,8 +1,8 @@
 import os
 
-MODEL_TYPES = ["rf", "xgb"]
+MODEL_TYPES = ["rf"]
 
-SYMBOLS = ["BTCUSDT", "ETHUSDT", "ADAUSDT", "BNBUSDT", "XRPUSDT"]
+SYMBOLS = ["BTCUSDT"] #, "ETHUSDT", "ADAUSDT", "BNBUSDT", "XRPUSDT"
 MARKET = "spot"          # "spot" or "futures/um"
 INTERVAL = "1m"
 MONTHS = [
