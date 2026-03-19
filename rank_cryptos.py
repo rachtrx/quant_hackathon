@@ -2,7 +2,7 @@ import os
 import pandas as pd
 import numpy as np
 from features import add_features
-from constants import DATA_DIR, TARGET_HORIZON, SYMBOLS
+from constants import DATA_DIR, TARGET_HORIZON, SYMBOLS, SYMBOLS
 
 def compute_metrics(symbol):
     """
@@ -84,9 +84,10 @@ def rank_cryptos(symbols):
     print("=" * 60)
     for _, row in ranked_df.iterrows():
         print(f"Rank {int(row['rank']):2d}: {row['symbol']} (Score: {row['suitability_score']:.3f})")
-        print(".3f")
-        print(".3f")
-        print(".3f")
+        print(f"  Volatility: {row['volatility']:.3f}")
+        print(f"  Liquidity: {row['liquidity']:.3f}")
+        print(f"  Reversion Score: {row['reversion_score']:.3f}")
+        print(f"  Oscillation: {row['oscillation']:.3f}")
         print()
 
     # Save to CSV
