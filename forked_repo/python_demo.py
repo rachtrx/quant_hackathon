@@ -7,8 +7,8 @@ import hmac
 import time
 
 
-API_KEY = "MYAPIKEY"
-SECRET = "MYAPISECRET"
+API_KEY = "Jk0d8PRjrHYsqoX2dJ9fdhmCdDVi1NQCBXtfghEHJgPklHl1V0hpNWmP5KsvBvI7"
+SECRET = "vwfhMLWsSrHjktYOMeberP2ThXUFpEllFJr0pXkV8IY3TPJgAXajH0am40PR2X5h"
 
 BASE_URL = "https://mock-api.roostoo.com"
 
@@ -25,7 +25,7 @@ def get_server_time():
     r = requests.get(
         BASE_URL + "/v3/serverTime",
     )
-    print r.status_code, r.text
+    print(r.status_code, r.text)
     return r.json()
 
 
@@ -33,7 +33,7 @@ def get_ex_info():
     r = requests.get(
         BASE_URL + "/v3/exchangeInfo",
     )
-    print r.status_code, r.text
+    print(r.status_code, r.text)
     return r.json()
 
 
@@ -48,7 +48,7 @@ def get_ticker(pair=None):
         BASE_URL + "/v3/ticker",
         params=payload,
     )
-    print r.status_code, r.text
+    print(r.status_code, r.text)
     return r.json()
 
 
@@ -63,7 +63,7 @@ def get_balance():
         headers={"RST-API-KEY": API_KEY,
                  "MSG-SIGNATURE": generate_signature(payload)}
     )
-    print r.status_code, r.text
+    print(r.status_code, r.text)
     return r.json()
 
 
@@ -87,8 +87,7 @@ def place_order(coin, side, qty, price=None):
         headers={"RST-API-KEY": API_KEY,
                  "MSG-SIGNATURE": generate_signature(payload)}
     )
-    print r.status_code, r.text
-
+    print(r.status_code, r.text)
 
 def cancel_order():
     payload = {
@@ -103,7 +102,7 @@ def cancel_order():
         headers={"RST-API-KEY": API_KEY,
                  "MSG-SIGNATURE": generate_signature(payload)}
     )
-    print r.status_code, r.text
+    print(r.status_code, r.text)
 
 
 def query_order():
@@ -120,7 +119,7 @@ def query_order():
         headers={"RST-API-KEY": API_KEY,
                  "MSG-SIGNATURE": generate_signature(payload)}
     )
-    print r.status_code, r.text
+    print(r.status_code, r.text)
 
 
 def pending_count():
@@ -134,16 +133,16 @@ def pending_count():
         headers={"RST-API-KEY": API_KEY,
                  "MSG-SIGNATURE": generate_signature(payload)}
     )
-    print r.status_code, r.text
+    print(r.status_code, r.text)
     return r.json()
 
 
 if __name__ == '__main__':
-    get_server_time()
-    get_ex_info()
-    get_ticker()
+    # get_server_time()
+    # get_ex_info()
+    # get_ticker()
     get_balance()
-    place_order("BNB", "BUY", 200000)
-    cancel_order()
-    query_order()
-    pending_count()
+    # place_order("BNB", "BUY", 200000)
+    # cancel_order()
+    # query_order()
+    # pending_count()
