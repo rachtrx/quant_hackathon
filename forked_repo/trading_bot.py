@@ -26,7 +26,7 @@ VOL_FILTER_THRESH = 1.1
 BASE_SIZE_PCT = 0.005  # 0.5%
 SL_DEV = -2.5
 TP_DEV = 0.0  # mean
-WINDOW = 1  # for rolling mean/std (start after first 30min candle)
+WINDOW = 10  # for rolling mean/std (start after first 30min candle)
 TARGET_HORIZON = 5  # since models are for 5min
 
 MODEL_DIR = "../models/rf"
