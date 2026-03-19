@@ -80,6 +80,10 @@ def _xgb_objective(trial: optuna.Trial, X_train, y_train, X_valid, y_valid) -> f
     trial.set_user_attr("ic", ic)
     trial.set_user_attr("rank_ic", ric)
 
+    trial.report(ric, step=0)
+    if trial.should_prune():
+        raise optuna.TrialPruned()
+
     return ric
 
 MODEL_REGISTRY = {
