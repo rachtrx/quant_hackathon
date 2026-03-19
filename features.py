@@ -99,17 +99,54 @@ def add_features(df: pd.DataFrame, target_horizon: int) -> tuple[pd.DataFrame, l
 
     df["is_trending"] = calc_is_trending(df["trend_strength"])
 
+    df["hour"] = pd.to_datetime(df["open_time"]).dt.hour
+    df["hour_sin"] = np.sin(2 * np.pi * df["hour"] / 24)
+    df["hour_cos"] = np.cos(2 * np.pi * df["hour"] / 24)
+
+    dow = pd.to_datetime(df["open_time"]).dt.dayofweek
+    df["dow_sin"] = np.sin(2 * np.pi * dow / 7)
+    df["dow_cos"] = np.cos(2 * np.pi * dow / 7)
+
+    dom = pd.to_datetime(df["open_time"]).dt.day
+    df["dom_sin"] = np.sin(2 * np.pi * dom / 31)
+    df["dom_cos"] = np.cos(2 * np.pi * dom / 31)
+
+    month = pd.to_datetime(df["open_time"]).dt.month
+    df["month_sin"] = np.sin(2 * np.pi * month / 12)
+    df["month_cos"] = np.cos(2 * np.pi * month / 12)
+
     df.replace([np.inf, -np.inf], np.nan, inplace=True)
 
     feature_cols = [
+         # momentum
         "mom_3", "mom_5", "mom_10", "mom_15",
+
+        # volume/trades momentum
         "volume_mom_5",
+
+        # mean reversion / trend positioning
         "dist_ma_5", "dist_ma_15", "dist_ma_30", "dist_ma_15_z",
+
+        # volatility
         "vol_5", "vol_15", "vol_30", "vol_ratio_5_30",
+
+        # price action
         "bar_range", "range_5", "range_15", "range_ratio",
+
+        # regimes
         "trend_strength", "vol_regime_ratio", "is_trending",
+
+        # order flow
         "imbalance_5", "imbalance_15",
+
+        # activity
         "volume_z",
+
+        # time
+        "hour_sin", "hour_cos",
+        "dow_sin", "dow_cos",
+        "dom_sin", "dom_cos",
+        "month_sin", "month_cos"
     ]
 
     return df, feature_cols

@@ -21,5 +21,13 @@
   "is_trending",
   "imbalance_5",
   "imbalance_15",
-  "volume_z"
+  "volume_z",
+  "hour_sin",
+  "hour_cos",
+  "dow_sin",
+  "dow_cos",
+  "dom_sin",
+  "dom_cos",
+  "month_sin",
+  "month_cos"
 ]

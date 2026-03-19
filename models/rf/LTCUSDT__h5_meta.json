@@ -1,0 +1,32 @@
+{
+  "symbol": "LTCUSDT",
+  "target_horizon": 5,
+  "target_col": "target_ret_fwd_5",
+  "model_type": "rf",
+  "study_best_value": 0.017081214571265827,
+  "model_params": {
+    "n_estimators": 50,
+    "max_depth": 6,
+    "min_samples_split": 184,
+    "min_samples_leaf": 87,
+    "max_features": "sqrt",
+    "random_state": 42,
+    "n_jobs": -1
+  },
+  "n_features": 31,
+  "feature_cols_path": "models/rf/LTCUSDT__h5_feature_cols.json",
+  "model_path": "models/rf/LTCUSDT__h5_model.joblib",
+  "feature_importance_path": "models/rf/LTCUSDT__h5_feature_importance.csv",
+  "train_ic": 0.1604066417296621,
+  "test_ic": -0.02898210038765096,
+  "train_rank_ic": 0.03160772776253126,
+  "test_rank_ic": 0.0017908467386904838,
+  "train_rmse": 0.003226427406446449,
+  "test_rmse": 0.001990169143368163,
+  "train_start_time": "2025-09-01T01:13:00+00:00",
+  "train_end_time": "2026-02-06T03:52:00+00:00",
+  "val_start_time": "2026-01-05T12:57:00+00:00",
+  "val_end_time": "2026-02-06T03:52:00+00:00",
+  "test_start_time": "2026-02-06T03:53:00+00:00",
+  "test_end_time": "2026-03-17T16:33:00+00:00"
+}
