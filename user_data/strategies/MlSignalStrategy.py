@@ -6,7 +6,7 @@
 from datetime import timedelta
 import json
 from pathlib import Path
-from typing import Dict, Any
+from typing import Any
 
 import joblib
 import numpy as np
@@ -15,8 +15,7 @@ from pandas import DataFrame
 
 from freqtrade.strategy import IStrategy
 
-# --- your project imports ---
-# Make sure these files are importable from where freqtrade runs.
+from constants import DATA_DIR, MODEL_DIR
 from features import add_features
 from controller import controller
 
@@ -28,7 +27,6 @@ class MlSignalStrategy(IStrategy):
     can_short = False
     timeframe = "1m"
 
-    # Keep ROI/SL out of the way initially so exits are driven by your logic.
     minimal_roi = {"0": 1000}
     stoploss = -0.99
     trailing_stop = False
@@ -40,25 +38,35 @@ class MlSignalStrategy(IStrategy):
     exit_profit_only = False
     ignore_roi_if_entry_signal = False
 
-    # ---- Your ML settings ----
-    MODEL_TYPE = "rf"       # or "xgb"
+    MODEL_TYPE = "rf"
     TARGET_HORIZON = 5
     MIN_PRED_HISTORY = 100
     DEFAULT_THRESHOLD = 0.001
     PRED_HIST_WINDOW = 500
 
-    # Set True if you want a forced sell after TARGET_HORIZON candles/minutes.
     USE_TIME_EXIT = False
 
     def bot_start(self, **kwargs) -> None:
         self._model_cache: dict[str, Any] = {}
         self._feature_cache: dict[str, list[str]] = {}
         self._meta_cache: dict[str, dict[str, Any]] = {}
-        self.model_root = Path("models") / self.MODEL_TYPE
-    
+        self._raw_cache: dict[str, pd.DataFrame] = {}
+
+        # models/rf/...
+        self.model_root = Path(MODEL_DIR) / self.MODEL_TYPE
+
+        # IMPORTANT:
+        # This must NOT be user_data/data/binance
+        # Put your rich 11-column raw parquet files somewhere else.
+        self.raw_root = Path(DATA_DIR)
+
     def _pair_to_symbol(self, pair: str) -> str:
         # BTC/USDT -> BTCUSDT
         return pair.replace("/", "").replace(":", "")
+
+    def _pair_to_freqtrade_filename(self, pair: str) -> str:
+        # BTC/USDT -> BTC_USDT
+        return pair.replace("/", "_").replace(":", "_")
 
     def _load_pair_artifacts(self, pair: str) -> tuple[Any, list[str], dict[str, Any]]:
         symbol = self._pair_to_symbol(pair)
@@ -74,15 +82,20 @@ class MlSignalStrategy(IStrategy):
         if not meta_path.exists():
             raise FileNotFoundError(f"Missing meta file: {meta_path}")
 
-        with open(meta_path, "r") as f:
+        with open(meta_path, "r", encoding="utf-8") as f:
             meta = json.load(f)
 
         model_path = Path(meta["model_path"])
         features_path = Path(meta["feature_cols_path"])
 
+        if not model_path.exists():
+            raise FileNotFoundError(f"Missing model file: {model_path}")
+        if not features_path.exists():
+            raise FileNotFoundError(f"Missing feature cols file: {features_path}")
+
         model = joblib.load(model_path)
 
-        with open(features_path, "r") as f:
+        with open(features_path, "r", encoding="utf-8") as f:
             feature_cols = json.load(f)
 
         meta["test_start_time"] = pd.to_datetime(meta["test_start_time"], utc=True)
@@ -93,6 +106,55 @@ class MlSignalStrategy(IStrategy):
         self._meta_cache[symbol] = meta
 
         return model, feature_cols, meta
+
+    def _load_raw_pair_data(self, pair: str) -> pd.DataFrame:
+        """
+        Load the rich raw market parquet containing Binance-specific fields
+        such as num_trades, quote_asset_volume, taker_buy_base_asset_volume, etc.
+
+        These files must be stored OUTSIDE freqtrade's OHLCV data directory.
+        """
+        symbol = self._pair_to_symbol(pair)
+
+        if symbol in self._raw_cache:
+            return self._raw_cache[symbol]
+
+        raw_path = self.raw_root / f"{symbol}_1m.parquet"
+        if not raw_path.exists():
+            raise FileNotFoundError(
+                f"Missing raw parquet for {symbol}: {raw_path}\n"
+                f"Put your rich raw files in {self.raw_root.resolve()}"
+            )
+
+        raw_df = pd.read_parquet(raw_path).copy()
+
+        if "open_time" not in raw_df.columns:
+            raise ValueError(f"{raw_path} must contain 'open_time'.")
+
+        raw_df["date"] = pd.to_datetime(raw_df["open_time"], utc=True)
+
+        # Keep only the extra fields you need from the raw dataframe.
+        # Do NOT keep OHLCV duplicates from here since freqtrade already provides them.
+        candidate_cols = [
+            "date",
+            "open_time",
+            "close_time",
+            "quote_asset_volume",
+            "num_trades",
+            "taker_buy_base_asset_volume",
+            "taker_buy_quote_asset_volume",
+        ]
+        keep_cols = [c for c in candidate_cols if c in raw_df.columns]
+
+        raw_df = (
+            raw_df[keep_cols]
+            .drop_duplicates(subset=["date"])
+            .sort_values("date")
+            .reset_index(drop=True)
+        )
+
+        self._raw_cache[symbol] = raw_df
+        return raw_df
 
     def populate_indicators(self, dataframe: DataFrame, metadata: dict) -> DataFrame:
         pair = metadata["pair"]
@@ -115,30 +177,65 @@ class MlSignalStrategy(IStrategy):
             (out["date"] <= test_end_time)
         )
 
+        # Merge raw Binance-specific fields from your separate rich parquet.
+        raw_df = self._load_raw_pair_data(pair)
+        df = df.merge(raw_df, on="date", how="left")
+
+        # Optional debug check
+        needed_extra_cols = [
+            "num_trades",
+            "quote_asset_volume",
+            "taker_buy_base_asset_volume",
+        ]
+        missing_stats = {
+            c: float(df[c].isna().mean()) if c in df.columns else 1.0
+            for c in needed_extra_cols
+        }
+        print(f"[{pair}] merged raw-column missing ratios: {missing_stats}")
+
         feat_df, _ = add_features(df, target_horizon=self.TARGET_HORIZON)
 
-        extra_cols = [
-            "pred",
-            "threshold",
-            "signal",
-            "position",
-            "reason",
-            "long_signal_raw",
-            "long_signal",
-            "is_trending",
-            "is_breakout",
-            "long_confirm",
-        ]
-        for c in extra_cols:
-            out[c] = np.nan
-
         if feat_df.empty:
+            extra_cols = [
+                "pred",
+                "threshold",
+                "signal",
+                "position",
+                "reason",
+                "long_signal_raw",
+                "long_signal",
+                "is_trending",
+                "is_breakout",
+                "long_confirm",
+            ]
+            for c in ["pred", "threshold"]:
+                out[c] = np.nan
+            for c in ["signal", "position"]:
+                out[c] = 0
+            out["reason"] = ""
+            for c in ["long_signal_raw", "long_signal", "is_trending", "is_breakout", "long_confirm"]:
+                out[c] = False
             return out
+
+        # Ensure all trained feature columns exist
+        missing_feature_cols = [c for c in feature_cols if c not in feat_df.columns]
+        if missing_feature_cols:
+            raise ValueError(
+                f"Missing feature columns required by model: {missing_feature_cols}"
+            )
 
         valid_mask = ~feat_df[feature_cols].isna().any(axis=1)
         feat_valid = feat_df.loc[valid_mask].copy()
 
         if feat_valid.empty:
+            print(f"[{pair}] No valid rows after feature filtering.")
+            for c in ["pred", "threshold"]:
+                out[c] = np.nan
+            for c in ["signal", "position"]:
+                out[c] = 0
+            out["reason"] = ""
+            for c in ["long_signal_raw", "long_signal", "is_trending", "is_breakout", "long_confirm"]:
+                out[c] = False
             return out
 
         X = feat_valid[feature_cols]
@@ -167,35 +264,43 @@ class MlSignalStrategy(IStrategy):
             })
 
         ctrl_cols = feat_valid.apply(_apply_controller, axis=1)
-        feat_valid = pd.concat([feat_valid, ctrl_cols], axis=1)
 
-        if "date" in feat_valid.columns:
-            feat_trim = feat_valid[["date"] + extra_cols].copy()
-            feat_trim["date"] = pd.to_datetime(feat_trim["date"], utc=True)
+        for col in ctrl_cols.columns:
+            feat_valid[col] = ctrl_cols[col]
 
-            out = out.merge(feat_trim, on="date", how="left", suffixes=("", "_ml"))
-            for c in extra_cols:
-                mlc = f"{c}_ml"
-                if mlc in out.columns:
-                    out[c] = out[mlc]
-                    out.drop(columns=[mlc], inplace=True)
-        else:
-            common_idx = feat_valid.index.intersection(out.index)
-            out.loc[common_idx, extra_cols] = feat_valid.loc[common_idx, extra_cols]
-
-        out["signal"] = out["signal"].fillna(0).astype(int)
-        out["position"] = out["position"].fillna(0).astype(int)
-
-        bool_cols = [
-            "in_test_window",
+        extra_cols = [
+            "pred",
+            "threshold",
+            "signal",
+            "position",
+            "reason",
             "long_signal_raw",
             "long_signal",
             "is_trending",
             "is_breakout",
             "long_confirm",
         ]
-        for c in bool_cols:
-            out[c] = out[c].fillna(False).astype(bool)
+
+        # Use date mapping instead of merge to avoid duplicate-column issues.
+        feat_trim = (
+            feat_valid.loc[:, ["date"] + extra_cols]
+            .drop_duplicates(subset=["date"], keep="last")
+            .set_index("date")
+        )
+
+        # hard guard against duplicate columns
+        if feat_trim.columns.duplicated().any():
+            dupes = feat_trim.columns[feat_trim.columns.duplicated()].tolist()
+            raise ValueError(f"Duplicate columns in feat_trim: {dupes}")
+
+        for c in ["pred", "threshold", "reason"]:
+            out[c] = out["date"].map(feat_trim[c])
+
+        for c in ["signal", "position"]:
+            out[c] = out["date"].map(feat_trim[c]).fillna(0).astype(int)
+
+        for c in ["long_signal_raw", "long_signal", "is_trending", "is_breakout", "long_confirm"]:
+            out[c] = out["date"].map(feat_trim[c]).astype("boolean").fillna(False).astype(bool)
 
         out["reason"] = out["reason"].fillna("")
 
@@ -247,10 +352,6 @@ class MlSignalStrategy(IStrategy):
         current_profit: float,
         **kwargs
     ):
-        """
-        Optional fixed-time sell after TARGET_HORIZON minutes.
-        Since timeframe is 1m, TARGET_HORIZON maps directly to minutes.
-        """
         if not self.USE_TIME_EXIT:
             return None
 

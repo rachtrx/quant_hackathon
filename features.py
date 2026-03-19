@@ -46,7 +46,7 @@ def add_features(df: pd.DataFrame, target_horizon: int) -> tuple[pd.DataFrame, l
         df[f"mom_{w}"] = df["close"].pct_change(w)
 
     df["volume_mom_5"] = df["volume"].pct_change(5)
-    df["num_trades_mom_5"] = df["num_trades"].pct_change(5)
+    # df["num_trades_mom_5"] = df["num_trades"].pct_change(5)
 
     for w in vol_windows:
         df[f"vol_{w}"] = df["ret_1"].rolling(w).std()
@@ -79,9 +79,9 @@ def add_features(df: pd.DataFrame, target_horizon: int) -> tuple[pd.DataFrame, l
     df["volume_std_20"] = df["volume"].rolling(20).std()
     df["volume_z"] = (df["volume"] - df["volume_ma_20"]) / (df["volume_std_20"] + EPS)
 
-    df["trades_ma_20"] = df["num_trades"].rolling(20).mean()
-    df["trades_std_20"] = df["num_trades"].rolling(20).std()
-    df["trades_z"] = (df["num_trades"] - df["trades_ma_20"]) / (df["trades_std_20"] + EPS)
+    #df["trades_ma_20"] = df["num_trades"].rolling(20).mean()
+    #df["trades_std_20"] = df["num_trades"].rolling(20).std()
+    #df["trades_z"] = (df["num_trades"] - df["trades_ma_20"]) / (df["trades_std_20"] + EPS)
 
     volume_nonzero = df["volume"].replace(0, np.nan)
 
@@ -99,7 +99,7 @@ def add_features(df: pd.DataFrame, target_horizon: int) -> tuple[pd.DataFrame, l
     df["vol_regime_ratio"] = calc_vol_regime_ratio(df)
 
     df["is_trending"] = calc_is_trending(df["trend_strength"])
-    df["is_high_vol"] = calc_is_high_vol(df["vol_regime_ratio"])
+    #df["is_high_vol"] = calc_is_high_vol(df["vol_regime_ratio"])
 
     df["mom_x_imb"] = df["mom_5"] * df["imbalance_5"]
     df["mr_x_vol"] = df["dist_ma_15_z"] * df["vol_ratio_5_30"]

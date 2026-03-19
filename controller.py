@@ -1,3 +1,5 @@
+import pandas as pd
+
 def controller(row: pd.Series, pred: float, threshold: float = 0.001) -> dict:
     is_trending = row["is_trending"] == 1
     is_ranging = not is_trending
