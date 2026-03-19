@@ -17,7 +17,7 @@ def _rf_objective(trial: optuna.Trial, X_train, y_train, X_valid, y_valid) -> fl
         ),
         "bootstrap": trial.suggest_categorical("bootstrap", [True, False]),
         "random_state": 42,
-        "n_jobs": -1,
+        "n_jobs": 64,
     }
 
     model = RandomForestRegressor(**params)
@@ -35,6 +35,10 @@ def _rf_objective(trial: optuna.Trial, X_train, y_train, X_valid, y_valid) -> fl
     trial.set_user_attr("ic", ic)
     trial.set_user_attr("rank_ic", ric)
 
+    trial.report(ric, step=0)
+    if trial.should_prune():
+        raise optuna.TrialPruned()
+
     return ric
 
 def _xgb_objective(trial: optuna.Trial, X_train, y_train, X_valid, y_valid) -> float:
@@ -50,7 +54,7 @@ def _xgb_objective(trial: optuna.Trial, X_train, y_train, X_valid, y_valid) -> f
         "objective": "reg:squarederror",
         "eval_metric": "rmse",
         "random_state": 42,
-        "n_jobs": -1,
+        "n_jobs": 64,
         # optional:
         # "tree_method": "hist",
     }
@@ -75,6 +79,10 @@ def _xgb_objective(trial: optuna.Trial, X_train, y_train, X_valid, y_valid) -> f
     trial.set_user_attr("rmse", rmse)
     trial.set_user_attr("ic", ic)
     trial.set_user_attr("rank_ic", ric)
+
+    trial.report(ric, step=0)
+    if trial.should_prune():
+        raise optuna.TrialPruned()
 
     return ric
 

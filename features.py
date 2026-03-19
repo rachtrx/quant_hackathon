@@ -35,22 +35,18 @@ def add_features(df: pd.DataFrame, target_horizon: int) -> tuple[pd.DataFrame, l
 
     df["ret_1"] = df["close"].pct_change(1)
 
-    mom_windows = [3, 5, 10, 15]
-    ret_windows = [3, 5, 15, 30, 60]
+    mom_windows = [3, 5, 10, 15, 30, 60]
     vol_windows = [5, 15, 30, 60]
     ma_windows = [5, 15, 30, 60]
 
     df["target"] = df["close"].shift(-target_horizon) / df["close"] - 1.0
     df[f"target_ret_fwd_{target_horizon}"] = df["target"]
 
-    for w in ret_windows:
-        df[f"ret_{w}"] = df["close"].pct_change(w)
-
     for w in mom_windows:
         df[f"mom_{w}"] = df["close"].pct_change(w)
 
     df["volume_mom_5"] = df["volume"].pct_change(5)
-    df["num_trades_mom_5"] = df["num_trades"].pct_change(5)
+    # df["num_trades_mom_5"] = df["num_trades"].pct_change(5)
 
     for w in vol_windows:
         df[f"vol_{w}"] = df["ret_1"].rolling(w).std()
@@ -83,9 +79,9 @@ def add_features(df: pd.DataFrame, target_horizon: int) -> tuple[pd.DataFrame, l
     df["volume_std_20"] = df["volume"].rolling(20).std()
     df["volume_z"] = (df["volume"] - df["volume_ma_20"]) / (df["volume_std_20"] + EPS)
 
-    df["trades_ma_20"] = df["num_trades"].rolling(20).mean()
-    df["trades_std_20"] = df["num_trades"].rolling(20).std()
-    df["trades_z"] = (df["num_trades"] - df["trades_ma_20"]) / (df["trades_std_20"] + EPS)
+    #df["trades_ma_20"] = df["num_trades"].rolling(20).mean()
+    #df["trades_std_20"] = df["num_trades"].rolling(20).std()
+    #df["trades_z"] = (df["num_trades"] - df["trades_ma_20"]) / (df["trades_std_20"] + EPS)
 
     volume_nonzero = df["volume"].replace(0, np.nan)
 
@@ -103,24 +99,78 @@ def add_features(df: pd.DataFrame, target_horizon: int) -> tuple[pd.DataFrame, l
     df["vol_regime_ratio"] = calc_vol_regime_ratio(df)
 
     df["is_trending"] = calc_is_trending(df["trend_strength"])
-    df["is_high_vol"] = calc_is_high_vol(df["vol_regime_ratio"])
+    #df["is_high_vol"] = calc_is_high_vol(df["vol_regime_ratio"])
 
     df["mom_x_imb"] = df["mom_5"] * df["imbalance_5"]
     df["mr_x_vol"] = df["dist_ma_15_z"] * df["vol_ratio_5_30"]
     df["trend_x_imb"] = df["trend_strength"] * df["imbalance_5"]
 
+    df["hour"] = pd.to_datetime(df["open_time"]).dt.hour
+    df["hour_sin"] = np.sin(2 * np.pi * df["hour"] / 24)
+    df["hour_cos"] = np.cos(2 * np.pi * df["hour"] / 24)
+
+    dow = pd.to_datetime(df["open_time"]).dt.dayofweek
+    df["dow_sin"] = np.sin(2 * np.pi * dow / 7)
+    df["dow_cos"] = np.cos(2 * np.pi * dow / 7)
+
+    dom = pd.to_datetime(df["open_time"]).dt.day
+    df["dom_sin"] = np.sin(2 * np.pi * dom / 31)
+    df["dom_cos"] = np.cos(2 * np.pi * dom / 31)
+
+    month = pd.to_datetime(df["open_time"]).dt.month
+    df["month_sin"] = np.sin(2 * np.pi * month / 12)
+    df["month_cos"] = np.cos(2 * np.pi * month / 12)
+
+    ema12 = df["close"].ewm(span=12).mean()
+    ema26 = df["close"].ewm(span=26).mean()
+    df["macd"] = ema12 - ema26
+    df["macd_signal"] = df["macd"].ewm(span=9).mean()
+    df["macd_hist"] = df["macd"] - df["macd_signal"]
+
+    tr = np.maximum(df["high"] - df["low"],
+      np.maximum(
+          abs(df["high"] - df["close"].shift(1)),
+          abs(df["low"] - df["close"].shift(1))
+      ))
+
+    df["atr_14"] = tr.rolling(14).mean()
+    df["atr_norm"] = df["atr_14"] / (df["close"] + EPS)
+
     df.replace([np.inf, -np.inf], np.nan, inplace=True)
 
     feature_cols = [
-        "mom_3", "mom_5", "mom_10", "mom_15",
+         # momentum
+        "mom_3", "mom_5", "mom_10", "mom_15", "mom_30", "mom_60", "macd_hist",
+
+        # volume/trades momentum
         "volume_mom_5", "num_trades_mom_5",
+
+        # mean reversion / trend positioning
         "dist_ma_5", "dist_ma_15", "dist_ma_30", "dist_ma_15_z",
-        "vol_5", "vol_15", "vol_30", "vol_ratio_5_30",
+
+        # volatility
+        "vol_5", "vol_15", "vol_30", "vol_ratio_5_30", "atr_norm",
+
+        # price action
         "bar_range", "range_5", "range_15", "range_ratio",
+
+        # regimes
         "trend_strength", "vol_regime_ratio", "is_trending", "is_high_vol",
+
+        # order flow
         "imbalance", "imbalance_5", "imbalance_15",
+
+        # activity
         "volume_z", "trades_z",
+
+        # interactions
         "mom_x_imb", "mr_x_vol", "trend_x_imb",
+
+        # time
+        "hour_sin", "hour_cos",
+        "dow_sin", "dow_cos",
+        "dom_sin", "dom_cos",
+        "month_sin", "month_cos"
     ]
 
     return df, feature_cols
