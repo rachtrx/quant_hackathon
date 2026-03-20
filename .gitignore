@@ -42,4 +42,7 @@ user_data/backtest_results
 user_data/plot
 binance_data/
 *.log
+*.zip
+*.out
+*.parquet
 /models
