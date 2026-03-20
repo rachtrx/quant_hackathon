@@ -1,6 +1,8 @@
 #!/usr/bin/env python
 # -*- coding: utf-8 -*-
 
+from __future__ import annotations
+
 import json
 import os
 import sys
@@ -8,7 +10,7 @@ import time
 import threading
 from pathlib import Path
 from dataclasses import dataclass, asdict
-from typing import Optional
+from typing import Optional, Any
 
 import joblib
 import numpy as np
@@ -21,41 +23,44 @@ from roostoo import python_demo
 from features import add_features
 from data_retrieval import fetch_recent_klines_rest
 from live_testing import tele_update, logger
+from constants import TARGET_HORIZON, INTERVAL
+
 
 # =========================================================
 # GLOBAL CONFIG
 # =========================================================
 INTERVAL = "1m"
 
-MODEL_DIR = "models/rf"
+MODEL_TYPE = "xgb"
+MODEL_DIR = f"models/{MODEL_TYPE}"
 DATA_DIR = "live_testing/data"
 STATE_DIR = "live_testing/state"
 
-TARGET_HORIZON = 5  # fallback only if meta does not contain target_horizon
+MIN_BAND_STD = 1e-8
 
-RESAMPLE_RULE = "30min"
-WINDOW_30M = 10
-ENTRY_DEV_THRESHOLD = -2.0
-STOP_DEV = -2.5
-TP_DEV = 0.0
+# These mirror the STRATEGY DEFAULTS
+WINDOW_30M = 20
+ENTRY_DEV_Z = -2.27
+SL_DEV_DELTA = 1.81
 
-VOL_FILTER_THRESH = 1.1
-VOL_SHORT_WINDOW_1M = 5
-VOL_LONG_WINDOW_30M = 30
+VOL_FILTER_THRESH = 0.96
 
-BASE_SIZE_SMALL = 0.005
-BASE_SIZE_MED = 0.01
-BASE_SIZE_LARGE = 0.02
+BASE_SIZE_PCT = 0.002
+MID_SIZE_PCT = 0.019
 
-MAX_BARS_1M = 2000
-MIN_BARS_1M = 1200
+ABS_MIN_PRED = 0.003
+PRED_ENTRY_QUANTILE = 0.45
+PRED_MID_DELTA = 0.09
+PRED_HIGH_DELTA = 0.04
+PRED_ROLLING_WINDOW = 656
+PRED_MIN_PERIODS_FRAC = 0.63
 
-BUY_FEE_RATE = 0.001
-MIN_ORDER_VALUE_USD = 1.0
+MAX_BARS_5M = 2500
+MIN_BARS_5M = 1200
+
+BUY_FEE_RATE = 0.000 # TO CHECK
 
 MAX_OPEN_POSITIONS = 5
-MAX_TOTAL_EXPOSURE_PCT = 0.30
-MAX_PER_PAIR_EXPOSURE_PCT = 0.10
 
 PAIR_CONFIGS = [
     {"pair": "ADA/USD", "symbol": "ADAUSDT", "coin": "ADA"},
@@ -63,11 +68,6 @@ PAIR_CONFIGS = [
     {"pair": "LINK/USD", "symbol": "LINKUSDT", "coin": "LINK"},
     {"pair": "DOT/USD", "symbol": "DOTUSDT", "coin": "DOT"},
     {"pair": "AVAX/USD", "symbol": "AVAXUSDT", "coin": "AVAX"},
-    # {"pair": "SOL/USD", "symbol": "SOLUSDT", "coin": "SOL"},
-    # {"pair": "LTC/USD", "symbol": "LTCUSDT", "coin": "LTC"},
-    # {"pair": "BNB/USD", "symbol": "BNBUSDT", "coin": "BNB"},
-    # {"pair": "ETH/USD", "symbol": "ETHUSDT", "coin": "ETH"},
-    # {"pair": "BTC/USD", "symbol": "BTCUSDT", "coin": "BTC"},
 ]
 
 order_lock = threading.Lock()
@@ -88,11 +88,14 @@ class PositionState:
     qty: float
     entry_price: float
     entry_time: str
-    entry_mean: float
-    entry_std: float
+    band_mean_30m: float
+    band_std_30m: float
     tp_price: float
     sl_price: float
-    tp_order_id: Optional[str] = None
+    stake_pct: float
+    pred: float
+    pred_proba: float
+    entry_reason: str
 
 
 # =========================================================
@@ -103,14 +106,14 @@ class CoinTrader:
         self.cfg = cfg
         self.logger = logger.setup_logger(name=f"bot_{cfg.symbol}")
 
-        self.meta_path = os.path.join(MODEL_DIR, f"{cfg.symbol}__h5_meta.json")
+        self.meta_path = os.path.join(MODEL_DIR, f"{cfg.symbol}__h{TARGET_HORIZON}_meta.json")
         self.meta = self.load_meta()
 
         self.model_path = self.meta["model_path"]
         self.features_path = self.meta["feature_cols_path"]
-        self.target_horizon = self.meta.get("target_horizon", TARGET_HORIZON)
+        self.target_horizon = TARGET_HORIZON
 
-        self.parquet_path = os.path.join(DATA_DIR, f"{cfg.symbol}_1m_live.parquet")
+        self.parquet_path = os.path.join(DATA_DIR, f"{cfg.symbol}_{INTERVAL}_live.parquet")
         self.position_state_path = os.path.join(
             STATE_DIR, f"{cfg.symbol.lower()}_position_state.json"
         )
@@ -123,7 +126,7 @@ class CoinTrader:
     # -----------------------------------------------------
     # Logging
     # -----------------------------------------------------
-    def log(self, msg, level="info", send_tele=False):
+    def log(self, msg: str, level: str = "info", send_tele: bool = False):
         line = f"[{self.cfg.symbol}] {msg}"
 
         if level == "info":
@@ -148,11 +151,11 @@ class CoinTrader:
         os.makedirs(DATA_DIR, exist_ok=True)
         os.makedirs(STATE_DIR, exist_ok=True)
 
-    def load_meta(self):
+    def load_meta(self) -> dict[str, Any]:
         if not os.path.exists(self.meta_path):
             raise FileNotFoundError(f"Meta file not found: {self.meta_path}")
 
-        with open(self.meta_path, "r") as f:
+        with open(self.meta_path, "r", encoding="utf-8") as f:
             meta = json.load(f)
 
         return meta
@@ -164,7 +167,7 @@ class CoinTrader:
             raise FileNotFoundError(f"Feature cols file not found: {self.features_path}")
 
         model = joblib.load(self.model_path)
-        with open(self.features_path, "r") as f:
+        with open(self.features_path, "r", encoding="utf-8") as f:
             feature_cols = json.load(f)
         return model, feature_cols
 
@@ -180,13 +183,15 @@ class CoinTrader:
                 df = (
                     df.sort_values("open_time")
                     .drop_duplicates(subset=["open_time"])
-                    .tail(MAX_BARS_1M)
+                    .tail(MAX_BARS_5M)
+                    .reset_index(drop=True)
                 )
-                return df.reset_index(drop=True)
+                return df
         return pd.DataFrame()
 
     def save_data(self):
-        self.df.to_parquet(self.parquet_path, index=False)
+        if not self.df.empty:
+            self.df.to_parquet(self.parquet_path, index=False)
 
     def save_position_state(self):
         if self.position is None:
@@ -194,15 +199,31 @@ class CoinTrader:
                 os.remove(self.position_state_path)
             return
 
-        with open(self.position_state_path, "w") as f:
+        with open(self.position_state_path, "w", encoding="utf-8") as f:
             json.dump(asdict(self.position), f, indent=2)
 
     def load_position_state(self) -> Optional[PositionState]:
         if not os.path.exists(self.position_state_path):
             return None
-        with open(self.position_state_path, "r") as f:
+        with open(self.position_state_path, "r", encoding="utf-8") as f:
             data = json.load(f)
         return PositionState(**data)
+
+    # -----------------------------------------------------
+    # Position limits
+    # -----------------------------------------------------
+    def count_open_positions(self) -> int:
+        count = 0
+        for cfg in PAIR_CONFIGS:
+            path = os.path.join(STATE_DIR, f"{cfg['symbol'].lower()}_position_state.json")
+            if os.path.exists(path):
+                count += 1
+        return count
+
+    def can_open_new_position(self) -> bool:
+        if self.position is not None:
+            return False
+        return self.count_open_positions() < MAX_OPEN_POSITIONS
 
     # -----------------------------------------------------
     # Data
@@ -210,7 +231,9 @@ class CoinTrader:
     def refresh_1m_data(self):
         if self.df.empty:
             recent = fetch_recent_klines_rest(
-                self.cfg.symbol, INTERVAL, limit=MAX_BARS_1M
+                self.cfg.symbol,
+                INTERVAL,
+                limit=MAX_BARS_5M,
             )
             if not recent.empty:
                 self.df = recent.copy()
@@ -227,108 +250,262 @@ class CoinTrader:
                 self.df = pd.concat([self.df, recent], ignore_index=True)
 
         if not self.df.empty:
+            self.df["open_time"] = pd.to_datetime(self.df["open_time"], utc=True)
+            if "close_time" in self.df.columns:
+                self.df["close_time"] = pd.to_datetime(
+                    self.df["close_time"], utc=True, errors="coerce"
+                )
+
             self.df = (
                 self.df.drop_duplicates(subset=["open_time"])
                 .sort_values("open_time")
-                .tail(MAX_BARS_1M)
+                .tail(MAX_BARS_5M)
                 .reset_index(drop=True)
             )
 
-    def build_signal_frame(self):
+    # -----------------------------------------------------
+    # Build signal frame to mirror Freqtrade strategy
+    # -----------------------------------------------------
+    def _normalize_utc_ns(self, s: pd.Series) -> pd.Series:
+        return pd.to_datetime(s, utc=True).astype("datetime64[ns, UTC]")
+    
+    def build_signal_frame(self) -> pd.DataFrame:
         df = self.df.copy()
 
-        df_features, _ = add_features(df, self.target_horizon)
+        if df.empty:
+            return pd.DataFrame()
+
+        df["date"] = self._normalize_utc_ns(df["open_time"])
+
+        feat_df, _ = add_features(df.copy(), target_horizon=self.target_horizon)
+
+        if feat_df.empty:
+            return pd.DataFrame()
+
+        missing_feature_cols = [c for c in self.feature_cols if c not in feat_df.columns]
+        if missing_feature_cols:
+            raise ValueError(
+                f"Missing feature columns required by model: {missing_feature_cols}"
+            )
+
+        valid_mask = ~feat_df[self.feature_cols].isna().any(axis=1)
+        feat_valid = feat_df.loc[valid_mask].copy()
+
+        if feat_valid.empty:
+            return pd.DataFrame()
+
+        feat_valid["date"] = self._normalize_utc_ns(feat_valid["date"])
+
+        X = feat_valid[self.feature_cols]
+        feat_valid["pred_proba"] = self.model.predict_proba(X)[:, 1]
+        feat_valid["pred"] = feat_valid["pred_proba"] - 0.5
 
         df_30 = (
-            df.set_index("open_time")
-            .resample(RESAMPLE_RULE)
-            .agg({"close": "last"})
+            df.set_index("date")
+            .resample("30min")
+            .agg(close_30m=("close", "last"))
             .dropna()
-            .copy()
+            .sort_index()
+            .reset_index()
         )
 
-        df_30["mean"] = df_30["close"].rolling(WINDOW_30M).mean()
-        df_30["std"] = df_30["close"].rolling(WINDOW_30M).std()
+        if df_30.empty:
+            return pd.DataFrame()
 
-        df["ret_1m"] = df["close"].pct_change()
-        vol_5 = df["ret_1m"].rolling(VOL_SHORT_WINDOW_1M).std().iloc[-1]
+        df_30["date"] = self._normalize_utc_ns(df_30["date"])
 
-        df_30["ret_30m"] = df_30["close"].pct_change()
-        df_30["vol_30m"] = df_30["ret_30m"].rolling(VOL_LONG_WINDOW_30M).std()
-        df_30["vol_5_latest"] = vol_5
+        df_30["band_mean_30m"] = df_30["close_30m"].rolling(WINDOW_30M).mean()
+        df_30["band_std_30m"] = df_30["close_30m"].rolling(WINDOW_30M).std()
+        df_30["vol_30_30m"] = df_30["close_30m"].pct_change().rolling(30).std()
 
-        return df_features, df_30
+        df_30["band_std_30m"] = df_30["band_std_30m"].clip(lower=MIN_BAND_STD)
+        df_30["vol_30_30m"] = df_30["vol_30_30m"].clip(lower=MIN_BAND_STD)
 
-    def get_latest_signal_values(
-        self, df_features: pd.DataFrame, df_30: pd.DataFrame
-    ):
-        if df_features.empty or df_30.empty:
-            return None
-
-        latest_30 = df_30.iloc[-1]
-
-        current_price = float(latest_30["close"])
-        current_mean = float(latest_30["mean"])
-        current_std = float(latest_30["std"])
-        vol_30 = (
-            float(latest_30["vol_30m"])
-            if pd.notna(latest_30["vol_30m"])
-            else np.nan
-        )
-        vol_5 = (
-            float(latest_30["vol_5_latest"])
-            if pd.notna(latest_30["vol_5_latest"])
-            else np.nan
+        df_30["date_available"] = self._normalize_utc_ns(
+            df_30["date"] + pd.Timedelta(minutes=30)
         )
 
-        if np.isnan(current_mean) or np.isnan(current_std) or current_std <= 0:
-            return None
-        if np.isnan(vol_30) or vol_30 <= 0:
-            return None
-        if np.isnan(vol_5):
+        feat_valid = pd.merge_asof(
+            feat_valid.sort_values("date"),
+            df_30[
+                [
+                    "date_available",
+                    "band_mean_30m",
+                    "band_std_30m",
+                    "vol_30_30m",
+                ]
+            ].sort_values("date_available"),
+            left_on="date",
+            right_on="date_available",
+            direction="backward",
+        )
+
+        feat_valid["vol_5_1m"] = feat_valid["close"].pct_change().rolling(5).std()
+
+        feat_valid["dev_z"] = (
+            (feat_valid["close"] - feat_valid["band_mean_30m"]) /
+            feat_valid["band_std_30m"]
+        )
+
+        feat_valid["vol_ratio_5_30"] = (
+            feat_valid["vol_5_1m"] / feat_valid["vol_30_30m"]
+        )
+
+        sl_dev_z = ENTRY_DEV_Z - SL_DEV_DELTA
+
+        feat_valid["sl_price_30m"] = (
+            feat_valid["band_mean_30m"] + sl_dev_z * feat_valid["band_std_30m"]
+        )
+
+        feat_valid["pass_vol_filter"] = (
+            feat_valid["vol_ratio_5_30"] < VOL_FILTER_THRESH
+        )
+
+        pred_shifted = feat_valid["pred"].shift(1)
+
+        pred_mid_q = min(PRED_ENTRY_QUANTILE + PRED_MID_DELTA, 0.95)
+        pred_high_q = min(pred_mid_q + PRED_HIGH_DELTA, 0.99)
+
+        pred_min_periods = max(
+            1,
+            int(PRED_ROLLING_WINDOW * PRED_MIN_PERIODS_FRAC)
+        )
+        pred_min_periods = min(pred_min_periods, PRED_ROLLING_WINDOW)
+
+        feat_valid["threshold"] = (
+            pred_shifted
+            .rolling(PRED_ROLLING_WINDOW, min_periods=pred_min_periods)
+            .quantile(PRED_ENTRY_QUANTILE)
+        )
+
+        feat_valid["pred_mid_threshold"] = (
+            pred_shifted
+            .rolling(PRED_ROLLING_WINDOW, min_periods=pred_min_periods)
+            .quantile(pred_mid_q)
+        )
+
+        feat_valid["pred_high_threshold"] = (
+            pred_shifted
+            .rolling(PRED_ROLLING_WINDOW, min_periods=pred_min_periods)
+            .quantile(pred_high_q)
+        )
+
+        for c in ["threshold", "pred_mid_threshold", "pred_high_threshold"]:
+            feat_valid[c] = feat_valid[c].fillna(ABS_MIN_PRED)
+            feat_valid[c] = feat_valid[c].clip(lower=ABS_MIN_PRED)
+
+        feat_valid["pred_mid_threshold"] = np.maximum(
+            feat_valid["pred_mid_threshold"],
+            feat_valid["threshold"],
+        )
+        feat_valid["pred_high_threshold"] = np.maximum(
+            feat_valid["pred_high_threshold"],
+            feat_valid["pred_mid_threshold"],
+        )
+
+        feat_valid["pass_pred_filter"] = (
+            (feat_valid["pred"] >= feat_valid["threshold"]) &
+            (feat_valid["pred"] < feat_valid["pred_high_threshold"])
+        )
+
+        feat_valid["enter_logic"] = (
+            (feat_valid["dev_z"] <= ENTRY_DEV_Z) &
+            feat_valid["pass_vol_filter"] &
+            feat_valid["pass_pred_filter"]
+        )
+
+        feat_valid["stake_pct"] = 0.0
+
+        feat_valid.loc[
+            feat_valid["enter_logic"] &
+            (feat_valid["pred"] >= feat_valid["threshold"]) &
+            (feat_valid["pred"] < feat_valid["pred_mid_threshold"]),
+            "stake_pct"
+        ] = BASE_SIZE_PCT
+
+        feat_valid.loc[
+            feat_valid["enter_logic"] &
+            (feat_valid["pred"] >= feat_valid["pred_mid_threshold"]) &
+            (feat_valid["pred"] < feat_valid["pred_high_threshold"]),
+            "stake_pct"
+        ] = MID_SIZE_PCT
+
+        feat_valid["enter_reason"] = np.select(
+            [
+                feat_valid["stake_pct"] == BASE_SIZE_PCT,
+                feat_valid["stake_pct"] == MID_SIZE_PCT,
+                (~feat_valid["pass_pred_filter"]) &
+                (feat_valid["pred"] >= feat_valid["pred_high_threshold"]),
+            ],
+            [
+                "meanrev_long_small",
+                "meanrev_long_mid",
+                "pred_too_high_skip",
+            ],
+            default="no_trade",
+        )
+
+        return feat_valid.sort_values("date").reset_index(drop=True)
+
+    def get_latest_signal_values(self, sig_df: pd.DataFrame) -> Optional[dict[str, Any]]:
+        if sig_df.empty:
             return None
 
-        dev = (current_price - current_mean) / current_std
-        vol_ratio = vol_5 / vol_30
+        latest = sig_df.iloc[-1].copy()
 
-        missing = [c for c in self.feature_cols if c not in df_features.columns]
-        if missing:
-            raise KeyError(f"Missing feature columns: {missing}")
+        required = [
+            "close",
+            "pred_proba",
+            "pred",
+            "threshold",
+            "pred_mid_threshold",
+            "pred_high_threshold",
+            "band_mean_30m",
+            "band_std_30m",
+            "sl_price_30m",
+            "dev_z",
+            "vol_5_1m",
+            "vol_30_30m",
+            "vol_ratio_5_30",
+            "stake_pct",
+            "enter_logic",
+            "pass_vol_filter",
+            "pass_pred_filter",
+            "enter_reason",
+        ]
 
-        latest_feat_row = df_features.iloc[-1][self.feature_cols]
-        if latest_feat_row.isna().any():
-            return None
-
-        pred = float(self.model.predict(latest_feat_row.values.reshape(1, -1))[0])
-        pred_price = current_price * (1.0 + pred)
-        pred_dev = (pred_price - current_mean) / current_std
+        for c in required:
+            if c not in latest.index:
+                return None
+            if c not in ["enter_logic", "pass_vol_filter", "pass_pred_filter", "enter_reason"]:
+                if pd.isna(latest[c]):
+                    return None
 
         return {
-            "current_price": current_price,
-            "current_mean": current_mean,
-            "current_std": current_std,
-            "dev": dev,
-            "vol_5": vol_5,
-            "vol_30": vol_30,
-            "vol_ratio": vol_ratio,
-            "pred": pred,
-            "pred_price": pred_price,
-            "pred_dev": pred_dev,
+            "date": latest["date"],
+            "current_price": float(latest["close"]),
+            "pred_proba": float(latest["pred_proba"]),
+            "pred": float(latest["pred"]),
+            "threshold": float(latest["threshold"]),
+            "pred_mid_threshold": float(latest["pred_mid_threshold"]),
+            "pred_high_threshold": float(latest["pred_high_threshold"]),
+            "band_mean_30m": float(latest["band_mean_30m"]),
+            "band_std_30m": float(latest["band_std_30m"]),
+            "sl_price_30m": float(latest["sl_price_30m"]),
+            "dev_z": float(latest["dev_z"]),
+            "vol_5_1m": float(latest["vol_5_1m"]),
+            "vol_30_30m": float(latest["vol_30_30m"]),
+            "vol_ratio_5_30": float(latest["vol_ratio_5_30"]),
+            "stake_pct": float(latest["stake_pct"]),
+            "enter_logic": bool(latest["enter_logic"]),
+            "pass_vol_filter": bool(latest["pass_vol_filter"]),
+            "pass_pred_filter": bool(latest["pass_pred_filter"]),
+            "enter_reason": str(latest["enter_reason"]),
         }
 
     # -----------------------------------------------------
-    # Sizing / Balances / Prices
+    # Balances / Prices
     # -----------------------------------------------------
-    def choose_position_size_pct(self, pred_dev: float) -> float:
-        if pred_dev < -1:
-            return 0.0
-        elif -1 <= pred_dev < 0:
-            return BASE_SIZE_SMALL
-        elif 0 <= pred_dev < 1:
-            return BASE_SIZE_MED
-        else:
-            return BASE_SIZE_LARGE
-
     def get_usd_balance(self) -> float:
         balance = python_demo.get_balance()
         try:
@@ -356,59 +533,41 @@ class CoinTrader:
     # -----------------------------------------------------
     # Orders
     # -----------------------------------------------------
-    def place_buy_and_tp(
+    def place_buy(
         self,
-        size_pct: float,
+        stake_pct: float,
         current_price: float,
-        current_mean: float,
-        current_std: float,
-    ):
+        band_mean_30m: float,
+        band_std_30m: float,
+        sl_price_30m: float,
+        pred: float,
+        pred_proba: float,
+        entry_reason: str,
+    ) -> Optional[PositionState]:
         usd_balance = self.get_usd_balance()
         if usd_balance <= 0:
+            self.log("No USD balance available.", level="warning")
             return None
 
-        qty = (usd_balance * size_pct * (1 - BUY_FEE_RATE)) / current_price
-
-        if qty * current_price < MIN_ORDER_VALUE_USD:
-            qty = (MIN_ORDER_VALUE_USD + 0.1) / current_price
+        qty = (usd_balance * stake_pct * (1 - BUY_FEE_RATE)) / current_price
 
         buy_resp = python_demo.place_order(self.cfg.pair, "BUY", qty)
 
         if not isinstance(buy_resp, dict) or not buy_resp.get("Success"):
-            self.log(
-                f"BUY failed: {buy_resp}",
-                send_tele=True
-            )
+            self.log(f"BUY failed: {buy_resp}", level="error", send_tele=True)
             return None
 
-        tp_price = current_mean + TP_DEV * current_std
-        sl_price = current_mean + STOP_DEV * current_std
-
-        tp_resp = python_demo.place_order(
-            self.cfg.pair,
-            "SELL",
-            qty,
-            tp_price,
-            order_type="LIMIT",
-        )
-
-        tp_order_id = None
-        tp_ok = isinstance(tp_resp, dict) and tp_resp.get("Success")
-        if tp_ok:
-            tp_order_id = tp_resp.get("OrderDetail", {}).get("OrderID")
-
-        if not tp_ok or tp_order_id is None:
-            self.log(
-                f"TP placement failed after BUY. buy_resp={buy_resp}, tp_resp={tp_resp}",
-                send_tele=True,
-            )
-            return None
+        tp_price = band_mean_30m
 
         self.log(
             f"ENTRY BUY qty={qty:.8f} {self.cfg.coin} "
-            f"entry={current_price:.2f} tp={tp_price:.2f} sl={sl_price:.2f} "
-            f"size_pct={size_pct * 100:.2f}% "
-            f"dev={(current_price - current_mean) / current_std:.3f}",
+            f"entry={current_price:.6f} "
+            f"tp_mean={tp_price:.6f} "
+            f"sl_band={sl_price_30m:.6f} "
+            f"stake_pct={stake_pct * 100:.2f}% "
+            f"pred={pred:.6f} "
+            f"pred_proba={pred_proba:.6f} "
+            f"reason={entry_reason}",
             send_tele=True,
         )
 
@@ -416,37 +575,30 @@ class CoinTrader:
             qty=float(qty),
             entry_price=float(current_price),
             entry_time=pd.Timestamp.utcnow().isoformat(),
-            entry_mean=float(current_mean),
-            entry_std=float(current_std),
+            band_mean_30m=float(band_mean_30m),
+            band_std_30m=float(band_std_30m),
             tp_price=float(tp_price),
-            sl_price=float(sl_price),
-            tp_order_id=str(tp_order_id),
+            sl_price=float(sl_price_30m),
+            stake_pct=float(stake_pct),
+            pred=float(pred),
+            pred_proba=float(pred_proba),
+            entry_reason=str(entry_reason),
         )
 
-    def cancel_tp_if_needed(self):
-        if self.position and self.position.tp_order_id:
-            try:
-                python_demo.cancel_order(order_id=self.position.tp_order_id)
-            except Exception as e:
-                self.log(
-                    f"Failed to cancel TP order {self.position.tp_order_id}: {e}",
-                    send_tele=True
-                )
-
-    def is_tp_filled(self) -> bool:
-        if self.position is None or not self.position.tp_order_id:
+    def market_sell_position(self) -> bool:
+        if self.position is None:
             return False
 
-        resp = python_demo.query_order(order_id=self.position.tp_order_id)
-        if not resp or not resp.get("Success"):
-            return False
+        sell_resp = python_demo.place_order(
+            self.cfg.pair,
+            "SELL",
+            self.position.qty,
+        )
 
-        orders = resp.get("OrderMatched", [])
-        if not orders:
-            return False
-
-        status = orders[0].get("Status", "").upper()
-        return status == "FILLED"
+        ok = isinstance(sell_resp, dict) and sell_resp.get("Success")
+        if not ok:
+            self.log(f"SELL failed: {sell_resp}", level="error", send_tele=True)
+        return ok
 
     def check_position_exit(self) -> Optional[str]:
         if self.position is None:
@@ -456,51 +608,47 @@ class CoinTrader:
         if live_price <= 0:
             return None
 
-        # TP: only count it as closed if we can confirm the coin was actually sold.
+        # Mirrors custom_exit:
+        # TP if current_rate >= band_mean
         if live_price >= self.position.tp_price:
-            if self.is_tp_filled():
-                usd_balance = self.get_usd_balance()
+            ok = self.market_sell_position()
+            if ok:
                 approx_pnl = (
-                    (self.position.tp_price - self.position.entry_price)
-                    * self.position.qty
+                    (live_price - self.position.entry_price) * self.position.qty
                 )
+                usd_balance = self.get_usd_balance()
 
                 self.log(
-                    f"TP FILLED qty={self.position.qty:.8f} {self.cfg.coin} "
-                    f"entry={self.position.entry_price:.2f} "
-                    f"exit≈{self.position.tp_price:.2f} "
-                    f"pnl≈{approx_pnl:.2f} "
+                    f"TP MEAN REVERT qty={self.position.qty:.8f} {self.cfg.coin} "
+                    f"entry={self.position.entry_price:.6f} "
+                    f"exit≈{live_price:.6f} "
+                    f"tp_mean={self.position.tp_price:.6f} "
+                    f"pnl≈{approx_pnl:.6f} "
                     f"usd_balance={usd_balance:.2f}",
-                    send_tele=True
+                    send_tele=True,
                 )
-                return "tp"
+                return "tp_mean_revert"
 
-        # SL: we actively market-sell, so can log right away.
+        # Mirrors custom_exit:
+        # SL if current_rate <= sl_price
         if live_price <= self.position.sl_price:
-            self.cancel_tp_if_needed()
+            ok = self.market_sell_position()
+            if ok:
+                approx_pnl = (
+                    (live_price - self.position.entry_price) * self.position.qty
+                )
+                usd_balance = self.get_usd_balance()
 
-            sell_resp = python_demo.place_order(
-                self.cfg.pair,
-                "SELL",
-                self.position.qty,
-            )
-
-            usd_balance = self.get_usd_balance()
-            approx_pnl = (
-                (live_price - self.position.entry_price) * self.position.qty
-            )
-
-            self.log(
-                f"STOPPED OUT qty={self.position.qty:.8f} {self.cfg.coin} "
-                f"entry={self.position.entry_price:.2f} "
-                f"exit≈{live_price:.2f} "
-                f"sl={self.position.sl_price:.2f} "
-                f"pnl≈{approx_pnl:.2f} "
-                f"usd_balance={usd_balance:.2f} "
-                f"resp={sell_resp}",
-                send_tele=True
-            )
-            return "sl"
+                self.log(
+                    f"SL BAND qty={self.position.qty:.8f} {self.cfg.coin} "
+                    f"entry={self.position.entry_price:.6f} "
+                    f"exit≈{live_price:.6f} "
+                    f"sl_band={self.position.sl_price:.6f} "
+                    f"pnl≈{approx_pnl:.6f} "
+                    f"usd_balance={usd_balance:.2f}",
+                    send_tele=True,
+                )
+                return "sl_band"
 
         return None
 
@@ -510,7 +658,7 @@ class CoinTrader:
     def step(self):
         self.refresh_1m_data()
 
-        if self.df.empty or len(self.df) < MIN_BARS_1M:
+        if self.df.empty or len(self.df) < MIN_BARS_5M:
             self.save_data()
             return
 
@@ -518,42 +666,54 @@ class CoinTrader:
 
         if self.position is not None:
             exit_reason = self.check_position_exit()
-            if exit_reason == "tp":
-                self.position = None
-                self.save_position_state()
-            elif exit_reason == "sl":
+            if exit_reason is not None:
                 self.position = None
                 self.save_position_state()
             return
 
-        df_features, df_30 = self.build_signal_frame()
-        sig = self.get_latest_signal_values(df_features, df_30)
+        sig_df = self.build_signal_frame()
+        sig = self.get_latest_signal_values(sig_df)
 
         if sig is None:
             return
 
-        entry_ok = (
-            sig["dev"] <= ENTRY_DEV_THRESHOLD
-            and sig["vol_ratio"] < VOL_FILTER_THRESH
-            and sig["pred"] > 0
+        # Optional debug like strategy
+        too_high = sig["pred"] >= sig["pred_high_threshold"]
+        self.log(
+            "latest_signal "
+            f"dev_z={sig['dev_z']:.4f} "
+            f"vol_ratio={sig['vol_ratio_5_30']:.4f} "
+            f"pred={sig['pred']:.6f} "
+            f"thr={sig['threshold']:.6f} "
+            f"mid_thr={sig['pred_mid_threshold']:.6f} "
+            f"high_thr={sig['pred_high_threshold']:.6f} "
+            f"vol_pass={sig['pass_vol_filter']} "
+            f"pred_pass={sig['pass_pred_filter']} "
+            f"too_high={too_high} "
+            f"enter_logic={sig['enter_logic']} "
+            f"stake_pct={sig['stake_pct']:.4f} "
+            f"reason={sig['enter_reason']}"
         )
 
-        if not entry_ok:
+        if not sig["enter_logic"]:
             return
 
-        size_pct = self.choose_position_size_pct(sig["pred_dev"])
-        if size_pct <= 0:
+        if sig["stake_pct"] <= 0:
             return
 
         with order_lock:
             if not self.can_open_new_position():
                 return
 
-            new_position = self.place_buy_and_tp(
-                size_pct=size_pct,
+            new_position = self.place_buy(
+                stake_pct=sig["stake_pct"],
                 current_price=sig["current_price"],
-                current_mean=sig["current_mean"],
-                current_std=sig["current_std"],
+                band_mean_30m=sig["band_mean_30m"],
+                band_std_30m=sig["band_std_30m"],
+                sl_price_30m=sig["sl_price_30m"],
+                pred=sig["pred"],
+                pred_proba=sig["pred_proba"],
+                entry_reason=sig["enter_reason"],
             )
 
             if new_position is not None:
@@ -570,12 +730,16 @@ class CoinTrader:
             try:
                 self.step()
             except Exception as e:
-                self.log(f"ERROR: {e}", send_tele=True)
+                self.log(f"ERROR: {e}", level="error", send_tele=True)
             sleep_to_next_minute()
 
+# =========================================================
+# RUNNERS
+# =========================================================
 def run_trader(cfg_dict):
     trader = CoinTrader(PairConfig(**cfg_dict))
     trader.run_forever()
+
 
 def sleep_to_next_minute():
     now = time.time()
@@ -583,18 +747,6 @@ def sleep_to_next_minute():
     sleep_time = next_minute - now
     time.sleep(sleep_time)
 
-def count_open_positions(self) -> int:
-    count = 0
-    for cfg in PAIR_CONFIGS:
-        path = os.path.join(STATE_DIR, f"{cfg['symbol'].lower()}_position_state.json")
-        if os.path.exists(path):
-            count += 1
-    return count
-
-def can_open_new_position(self) -> bool:
-    if self.position is not None:
-        return False
-    return self.count_open_positions() < MAX_OPEN_POSITIONS
 
 def main():
     threads = []
