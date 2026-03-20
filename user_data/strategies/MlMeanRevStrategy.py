@@ -42,7 +42,8 @@ class MlMeanRevStrategy(IStrategy):
     # ----------------------------
     # Strategy parameters
     # ----------------------------
-    MODEL_TYPE = "rf"
+    MODEL_TYPE = "xgb"
+    print("using xgb")
     TARGET_HORIZON = 5
 
     WINDOW_30M = 10
@@ -165,7 +166,12 @@ class MlMeanRevStrategy(IStrategy):
 
         temp = df.copy()
         temp["date"] = pd.to_datetime(temp["date"], utc=True)
-        ts = pd.Timestamp(current_time, tz="UTC")
+        ts = pd.Timestamp(current_time)
+
+        if ts.tzinfo is None:
+            ts = ts.tz_localize("UTC")
+        else:
+            ts = ts.tz_convert("UTC")
 
         temp = temp[temp["date"] <= ts]
         if temp.empty:

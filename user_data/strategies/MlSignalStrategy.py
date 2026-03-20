@@ -38,7 +38,7 @@ class MlSignalStrategy(IStrategy):
     exit_profit_only = False
     ignore_roi_if_entry_signal = False
 
-    MODEL_TYPE = "rf"
+    MODEL_TYPE = "xgb"
     TARGET_HORIZON = 5
     MIN_PRED_HISTORY = 100
     DEFAULT_THRESHOLD = 0.001
