@@ -15,20 +15,20 @@
       "max_open_trades": 3
     },
     "buy": {
-      "ABS_MIN_PRED": 0.025,
-      "BASE_SIZE_PCT": 0.008,
-      "ENTRY_DEV_Z": -2.46,
-      "MID_SIZE_PCT": 0.007,
-      "PRED_ENTRY_QUANTILE": 0.58,
-      "PRED_HIGH_DELTA": 0.08,
-      "PRED_MID_DELTA": 0.08,
-      "PRED_MIN_PERIODS_FRAC": 0.81,
-      "PRED_ROLLING_WINDOW": 809,
-      "VOL_FILTER_THRESH": 1.48,
-      "WINDOW_30M": 29
+      "ABS_MIN_PRED": 0.003,
+      "BASE_SIZE_PCT": 0.002,
+      "ENTRY_DEV_Z": -2.27,
+      "MID_SIZE_PCT": 0.019,
+      "PRED_ENTRY_QUANTILE": 0.45,
+      "PRED_HIGH_DELTA": 0.04,
+      "PRED_MID_DELTA": 0.09,
+      "PRED_MIN_PERIODS_FRAC": 0.63,
+      "PRED_ROLLING_WINDOW": 656,
+      "VOL_FILTER_THRESH": 0.96,
+      "WINDOW_30M": 20
     },
     "sell": {
-      "SL_DEV_DELTA": 0.76
+      "SL_DEV_DELTA": 1.81
     }
   },
   "ft_stratparam_v": 1,

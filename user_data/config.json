@@ -56,7 +56,9 @@
         "DOT/USDT",
         "XRP/USDT",
         "LINK/USDT",
-        "LTC/USDT"
+        "LTC/USDT",
+        "ADA/USDT",
+        "SOL/USDT"
       ],
       "pair_blacklist": []
     },
