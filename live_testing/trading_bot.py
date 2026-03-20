@@ -53,12 +53,16 @@ MIN_BARS_1M = 1200
 BUY_FEE_RATE = 0.001
 MIN_ORDER_VALUE_USD = 1.0
 
+MAX_OPEN_POSITIONS = 5
+MAX_TOTAL_EXPOSURE_PCT = 0.30
+MAX_PER_PAIR_EXPOSURE_PCT = 0.10
+
 PAIR_CONFIGS = [
     {"pair": "ADA/USD", "symbol": "ADAUSDT", "coin": "ADA"},
     {"pair": "XRP/USD", "symbol": "XRPUSDT", "coin": "XRP"},
     {"pair": "LINK/USD", "symbol": "LINKUSDT", "coin": "LINK"},
-    # {"pair": "DOT/USD", "symbol": "DOTUSDT", "coin": "DOT"},
-    # {"pair": "AVAX/USD", "symbol": "AVAXUSDT", "coin": "AVAX"},
+    {"pair": "DOT/USD", "symbol": "DOTUSDT", "coin": "DOT"},
+    {"pair": "AVAX/USD", "symbol": "AVAXUSDT", "coin": "AVAX"},
     # {"pair": "SOL/USD", "symbol": "SOLUSDT", "coin": "SOL"},
     # {"pair": "LTC/USD", "symbol": "LTCUSDT", "coin": "LTC"},
     # {"pair": "BNB/USD", "symbol": "BNBUSDT", "coin": "BNB"},
@@ -352,60 +356,68 @@ class CoinTrader:
         current_mean: float,
         current_std: float,
     ):
-        with order_lock:
-            usd_balance = self.get_usd_balance()
-            if usd_balance <= 0:
-                return None
+        usd_balance = self.get_usd_balance()
+        if usd_balance <= 0:
+            return None
 
-            qty = (usd_balance * size_pct * (1 - BUY_FEE_RATE)) / current_price
+        qty = (usd_balance * size_pct * (1 - BUY_FEE_RATE)) / current_price
 
-            if qty * current_price < MIN_ORDER_VALUE_USD:
-                qty = (MIN_ORDER_VALUE_USD + 0.1) / current_price
+        if qty * current_price < MIN_ORDER_VALUE_USD:
+            qty = (MIN_ORDER_VALUE_USD + 0.1) / current_price
 
-            buy_resp = python_demo.place_order(self.cfg.pair, "BUY", qty)
+        buy_resp = python_demo.place_order(self.cfg.pair, "BUY", qty)
 
-            if not isinstance(buy_resp, dict) or not buy_resp.get("Success"):
-                self.log(
-                    f"BUY failed: {buy_resp}",
-                    send_tele=True,
-                    force_print=True,
-                )
-                return None
-
-            tp_price = current_mean + TP_DEV * current_std
-            sl_price = current_mean + STOP_DEV * current_std
-
-            tp_resp = python_demo.place_order(
-                self.cfg.pair,
-                "SELL",
-                qty,
-                tp_price,
-                order_type="LIMIT",
-            )
-
-            tp_order_id = None
-            if isinstance(tp_resp, dict):
-                tp_order_id = tp_resp.get("OrderDetail", {}).get("OrderID")
-
+        if not isinstance(buy_resp, dict) or not buy_resp.get("Success"):
             self.log(
-                f"ENTRY BUY qty={qty:.8f} {self.cfg.coin} "
-                f"entry={current_price:.2f} tp={tp_price:.2f} sl={sl_price:.2f} "
-                f"size_pct={size_pct * 100:.2f}% "
-                f"dev={(current_price - current_mean) / current_std:.3f}",
+                f"BUY failed: {buy_resp}",
                 send_tele=True,
                 force_print=True,
             )
+            return None
 
-            return PositionState(
-                qty=float(qty),
-                entry_price=float(current_price),
-                entry_time=pd.Timestamp.utcnow().isoformat(),
-                entry_mean=float(current_mean),
-                entry_std=float(current_std),
-                tp_price=float(tp_price),
-                sl_price=float(sl_price),
-                tp_order_id=str(tp_order_id) if tp_order_id is not None else None,
+        tp_price = current_mean + TP_DEV * current_std
+        sl_price = current_mean + STOP_DEV * current_std
+
+        tp_resp = python_demo.place_order(
+            self.cfg.pair,
+            "SELL",
+            qty,
+            tp_price,
+            order_type="LIMIT",
+        )
+
+        tp_order_id = None
+        tp_ok = isinstance(tp_resp, dict) and tp_resp.get("Success")
+        if tp_ok:
+            tp_order_id = tp_resp.get("OrderDetail", {}).get("OrderID")
+
+        if not tp_ok or tp_order_id is None:
+            self.log(
+                f"TP placement failed after BUY. buy_resp={buy_resp}, tp_resp={tp_resp}",
+                send_tele=True,
+                force_print=True,
             )
+            return None
+
+        self.log(
+            f"ENTRY BUY qty={qty:.8f} {self.cfg.coin} "
+            f"entry={current_price:.2f} tp={tp_price:.2f} sl={sl_price:.2f} "
+            f"size_pct={size_pct * 100:.2f}% "
+            f"dev={(current_price - current_mean) / current_std:.3f}",
+            send_tele=True,
+            force_print=True,
+        )
+
+        return PositionState(
+            qty=float(qty),
+            entry_price=float(current_price),
+            entry_time=pd.Timestamp.utcnow().isoformat(),
+            entry_mean=float(current_mean),
+            entry_std=float(current_std),
+            tp_price=float(tp_price),
+            sl_price=float(sl_price),
+            tp_order_id=str(tp_order_id),
+        )
 
     def cancel_tp_if_needed(self):
         if self.position and self.position.tp_order_id:
@@ -419,14 +431,19 @@ class CoinTrader:
                 )
 
     def is_tp_filled(self) -> bool:
-        if self.position is None:
+        if self.position is None or not self.position.tp_order_id:
             return False
 
-        coin_balance = self.get_coin_balance()
+        resp = python_demo.query_order(order_id=self.position.tp_order_id)
+        if not resp or not resp.get("Success"):
+            return False
 
-        # If most/all of the coin is gone, assume TP limit sell filled.
-        # Using 10% leftover threshold to allow for minor residuals.
-        return coin_balance < max(1e-8, self.position.qty * 0.1)
+        orders = resp.get("OrderMatched", [])
+        if not orders:
+            return False
+
+        status = orders[0].get("Status", "").upper()
+        return status == "FILLED"
 
     def check_position_exit(self) -> Optional[str]:
         if self.position is None:
@@ -500,7 +517,10 @@ class CoinTrader:
 
         if self.position is not None:
             exit_reason = self.check_position_exit()
-            if exit_reason is not None:
+            if exit_reason == "tp":
+                self.position = None
+                self.save_position_state()
+            elif exit_reason == "sl":
                 self.position = None
                 self.save_position_state()
             return
@@ -524,16 +544,20 @@ class CoinTrader:
         if size_pct <= 0:
             return
 
-        new_position = self.place_buy_and_tp(
-            size_pct=size_pct,
-            current_price=sig["current_price"],
-            current_mean=sig["current_mean"],
-            current_std=sig["current_std"],
-        )
+        with order_lock:
+            if not self.can_open_new_position():
+                return
 
-        if new_position is not None:
-            self.position = new_position
-            self.save_position_state()
+            new_position = self.place_buy_and_tp(
+                size_pct=size_pct,
+                current_price=sig["current_price"],
+                current_mean=sig["current_mean"],
+                current_std=sig["current_std"],
+            )
+
+            if new_position is not None:
+                self.position = new_position
+                self.save_position_state()
 
     def run_forever(self):
         self.log(
@@ -558,6 +582,19 @@ def sleep_to_next_minute():
     next_minute = (int(now // 60) + 1) * 60
     sleep_time = next_minute - now
     time.sleep(sleep_time)
+
+def count_open_positions(self) -> int:
+    count = 0
+    for cfg in PAIR_CONFIGS:
+        path = os.path.join(STATE_DIR, f"{cfg['symbol'].lower()}_position_state.json")
+        if os.path.exists(path):
+            count += 1
+    return count
+
+def can_open_new_position(self) -> bool:
+    if self.position is not None:
+        return False
+    return self.count_open_positions() < MAX_OPEN_POSITIONS
 
 def main():
     threads = []
