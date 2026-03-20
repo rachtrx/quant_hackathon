@@ -1,0 +1,33 @@
+{
+  "symbol": "AVAXUSDT",
+  "target_horizon": 5,
+  "target_col": "target_ret_fwd_5",
+  "model_type": "rf",
+  "study_best_value": 0.07980952579097855,
+  "model_params": {
+    "n_estimators": 800,
+    "max_depth": 19,
+    "min_samples_split": 25,
+    "min_samples_leaf": 5,
+    "max_features": "log2",
+    "bootstrap": false,
+    "random_state": 42,
+    "n_jobs": -1
+  },
+  "n_features": 42,
+  "feature_cols_path": "models/rf/AVAXUSDT__h5_feature_cols.json",
+  "model_path": "models/rf/AVAXUSDT__h5_model.joblib",
+  "feature_importance_path": "models/rf/AVAXUSDT__h5_feature_importance.csv",
+  "train_ic": 0.7297913408377094,
+  "test_ic": -0.04225515258668694,
+  "train_rank_ic": 0.15695505025174464,
+  "test_rank_ic": 0.06206881555994109,
+  "train_rmse": 0.003783129958493565,
+  "test_rmse": 0.0028315084786044702,
+  "train_start_time": "2025-09-01T01:13:00+00:00",
+  "train_end_time": "2026-01-31T17:55:00+00:00",
+  "val_start_time": "2025-12-29T21:13:00+00:00",
+  "val_end_time": "2026-01-31T17:55:00+00:00",
+  "test_start_time": "2026-01-31T17:56:00+00:00",
+  "test_end_time": "2026-03-17T16:33:00+00:00"
+}

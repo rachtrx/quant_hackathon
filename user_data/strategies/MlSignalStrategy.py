@@ -27,18 +27,18 @@ class MlSignalStrategy(IStrategy):
     can_short = False
     timeframe = "1m"
 
-    minimal_roi = {"0": 1000}
-    stoploss = -0.99
+    minimal_roi = { }
+    stoploss = -0.10
     trailing_stop = False
 
     process_only_new_candles = True
-    startup_candle_count = 400
+    startup_candle_count = 800
 
     use_exit_signal = True
     exit_profit_only = False
     ignore_roi_if_entry_signal = False
 
-    MODEL_TYPE = "rf"
+    MODEL_TYPE = "xgb"
     TARGET_HORIZON = 5
     MIN_PRED_HISTORY = 100
     DEFAULT_THRESHOLD = 0.001

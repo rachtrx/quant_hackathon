@@ -3,6 +3,9 @@
   "mom_5",
   "mom_10",
   "mom_15",
+  "mom_30",
+  "mom_60",
+  "macd_hist",
   "volume_mom_5",
   "num_trades_mom_5",
   "dist_ma_5",
@@ -13,6 +16,7 @@
   "vol_15",
   "vol_30",
   "vol_ratio_5_30",
+  "atr_norm",
   "bar_range",
   "range_5",
   "range_15",
@@ -28,5 +32,13 @@
   "trades_z",
   "mom_x_imb",
   "mr_x_vol",
-  "trend_x_imb"
+  "trend_x_imb",
+  "hour_sin",
+  "hour_cos",
+  "dow_sin",
+  "dow_cos",
+  "dom_sin",
+  "dom_cos",
+  "month_sin",
+  "month_cos"
 ]
