@@ -15,7 +15,7 @@ from pandas import DataFrame
 
 from freqtrade.strategy import IStrategy
 
-from constants import DATA_DIR, MODEL_DIR
+from constants import DATA_DIR, INTERVAL, MODEL_DIR
 from features import add_features
 from controller import controller
 
@@ -25,7 +25,7 @@ class MlSignalStrategy(IStrategy):
 
     # Spot / long-only
     can_short = False
-    timeframe = "1m"
+    timeframe = INTERVAL
 
     minimal_roi = { }
     stoploss = -0.10
@@ -41,7 +41,7 @@ class MlSignalStrategy(IStrategy):
     MODEL_TYPE = "xgb"
     TARGET_HORIZON = 5
     MIN_PRED_HISTORY = 100
-    DEFAULT_THRESHOLD = 0.001
+    DEFAULT_THRESHOLD = 0.03
     PRED_HIST_WINDOW = 500
 
     USE_TIME_EXIT = False
@@ -119,7 +119,7 @@ class MlSignalStrategy(IStrategy):
         if symbol in self._raw_cache:
             return self._raw_cache[symbol]
 
-        raw_path = self.raw_root / f"{symbol}_1m.parquet"
+        raw_path = self.raw_root / f"{symbol}_{INTERVAL}.parquet"
         if not raw_path.exists():
             raise FileNotFoundError(
                 f"Missing raw parquet for {symbol}: {raw_path}\n"
@@ -239,7 +239,9 @@ class MlSignalStrategy(IStrategy):
             return out
 
         X = feat_valid[feature_cols]
-        feat_valid["pred"] = model.predict(X)
+        feat_valid["pred_proba"] = model.predict_proba(X)[:, 1]
+        # Convert probability into centered directional edge
+        feat_valid["pred"] = feat_valid["pred_proba"] - 0.5
 
         feat_valid["threshold"] = (
             feat_valid["pred"]
@@ -296,8 +298,8 @@ class MlSignalStrategy(IStrategy):
         for c in ["pred", "threshold", "reason"]:
             out[c] = out["date"].map(feat_trim[c])
 
-        for c in ["signal", "position"]:
-            out[c] = out["date"].map(feat_trim[c]).fillna(0).astype(int)
+        out["signal"] = out["date"].map(feat_trim["signal"]).fillna(0).astype(int)
+        out["position"] = out["date"].map(feat_trim["position"]).fillna(0.0).astype(float)
 
         for c in ["long_signal_raw", "long_signal", "is_trending", "is_breakout", "long_confirm"]:
             out[c] = out["date"].map(feat_trim[c]).astype("boolean").fillna(False).astype(bool)
@@ -315,7 +317,7 @@ class MlSignalStrategy(IStrategy):
         df.loc[
             (
                 (df["in_test_window"]) &
-                (df["position"] == 1) &
+                (df["position"] > 0) &
                 (df["volume"] > 0)
             ),
             ["enter_long", "enter_tag"]

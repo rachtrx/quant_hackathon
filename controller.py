@@ -1,6 +1,12 @@
 import pandas as pd
 
-def controller(row: pd.Series, pred: float, threshold: float = 0.001) -> dict:
+def controller(row: pd.Series, pred: float, threshold: float = 0.03) -> dict:
+    """
+    pred is now an edge score, not raw probability.
+    Example:
+        prob = 0.58 -> pred = 0.08
+        prob = 0.51 -> pred = 0.01
+    """
     is_trending = row["is_trending"] == 1
     is_ranging = not is_trending
 
@@ -8,8 +14,8 @@ def controller(row: pd.Series, pred: float, threshold: float = 0.001) -> dict:
     dist_z = float(row.get("dist_ma_15_z", 0.0))
     imbalance_5 = float(row.get("imbalance_5", 0.0))
 
-    # Soft breakout / confirmation signals
     is_breakout = vol_ratio > 1.1
+
     breakout_boost = 1.0
     if vol_ratio > 1.2:
         breakout_boost = 1.15
@@ -26,13 +32,11 @@ def controller(row: pd.Series, pred: float, threshold: float = 0.001) -> dict:
 
     adjusted_pred = pred * breakout_boost * confirm_boost
 
-    # Trend regime: allow breakout to help, but do not require it
     trend_long = (
         is_trending
         and adjusted_pred > threshold
     )
 
-    # Mean reversion regime: require stronger stretch and no breakout
     meanrev_long = (
         is_ranging
         and (not is_breakout)
@@ -42,8 +46,6 @@ def controller(row: pd.Series, pred: float, threshold: float = 0.001) -> dict:
 
     long_signal_raw = trend_long or meanrev_long
     long_confirm = imbalance_5 > 0.0
-
-    # Final long signal
     long_signal = long_signal_raw and long_confirm
 
     position = 0.0

@@ -2,13 +2,13 @@ from pathlib import Path
 import subprocess
 import sys
 
-from constants import SYMBOLS, TARGET_HORIZON, MODEL_TYPES
+from constants import SYMBOLS, TARGET_HORIZON, INTERVAL, MODEL_TYPES
 
 NOTEBOOK = "train.ipynb"
 OUTPUT_DIR = Path("outputs")
 
 
-def run_one(symbol: str, model_type: str, target_horizon: int) -> None:
+def run_one(symbol: str, model_type: str, interval: int, target_horizon: int) -> None:
     run_dir = OUTPUT_DIR / model_type
     run_dir.mkdir(parents=True, exist_ok=True)
 
@@ -19,6 +19,7 @@ def run_one(symbol: str, model_type: str, target_horizon: int) -> None:
         NOTEBOOK,
         str(output_notebook),
         "-p", "SYMBOL", symbol,
+        "-p", "INTERVAL", str(interval),
         "-p", "TARGET_HORIZON", str(target_horizon),
         "-p", "MODEL_TYPE", model_type,
     ]
@@ -33,7 +34,7 @@ def main() -> None:
 
     for symbol in SYMBOLS:
         for model_type in MODEL_TYPES:
-            run_one(symbol, model_type, TARGET_HORIZON)
+            run_one(symbol, model_type, INTERVAL, TARGET_HORIZON)
 
     print("All runs completed.")
 

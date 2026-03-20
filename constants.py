@@ -4,8 +4,11 @@ MODEL_TYPES = ["rf", "xgb"]
 
 SYMBOLS = ["BTCUSDT", "ETHUSDT", "ADAUSDT", "BNBUSDT", "XRPUSDT", "SOLUSDT", "LINKUSDT", "DOTUSDT", "LTCUSDT", "AVAXUSDT"]
 MARKET = "spot"          # "spot" or "futures/um"
-INTERVAL = "1m"
+INTERVAL = "5m"
 MONTHS = [
+    "2025-06",
+    "2025-07",
+    "2025-08",
     "2025-09",
     "2025-10",
     "2025-11",
@@ -16,7 +19,7 @@ MONTHS = [
 
 BINANCE_SPOT_KLINES_API_URL = "https://data-api.binance.vision/api/v3/klines"
 BINANCE_SPOT_KLINES_VISION_URL = "https://data.binance.vision/data/spot"
-TARGET_HORIZON = 5
+TARGET_HORIZON = 6
 
 DATA_DIR = "binance_data"
 MODEL_DIR = "models"

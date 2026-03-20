@@ -17,7 +17,7 @@ from pandas import DataFrame
 
 from freqtrade.strategy import IStrategy
 
-from constants import DATA_DIR, MODEL_DIR
+from constants import DATA_DIR, INTERVAL, MODEL_DIR
 from features import add_features
 
 
@@ -25,7 +25,7 @@ class MlMeanRevStrategy(IStrategy):
     INTERFACE_VERSION = 3
 
     can_short = False
-    timeframe = "1m"
+    timeframe = INTERVAL
 
     # We handle exits ourselves via custom_exit().
     minimal_roi = {}

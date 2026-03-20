@@ -1,10 +1,45 @@
 import optuna
 import numpy as np
-from utils import information_coefficient, rank_information_coefficient
-from sklearn.metrics import root_mean_squared_error
 
-from sklearn.ensemble import RandomForestRegressor
-from xgboost import XGBRegressor
+from sklearn.ensemble import RandomForestClassifier
+from xgboost import XGBClassifier
+
+from sklearn.metrics import (
+    roc_auc_score,
+    average_precision_score,
+    log_loss,
+    brier_score_loss,
+)
+
+
+def _safe_roc_auc(y_true, y_score) -> float:
+    try:
+        return roc_auc_score(y_true, y_score)
+    except Exception:
+        return 0.5
+
+
+def _safe_pr_auc(y_true, y_score) -> float:
+    try:
+        return average_precision_score(y_true, y_score)
+    except Exception:
+        return 0.0
+
+
+def _safe_log_loss(y_true, y_score) -> float:
+    try:
+        y_score = np.clip(y_score, 1e-8, 1 - 1e-8)
+        return log_loss(y_true, y_score)
+    except Exception:
+        return 1e9
+
+
+def _safe_brier(y_true, y_score) -> float:
+    try:
+        return brier_score_loss(y_true, y_score)
+    except Exception:
+        return 1e9
+
 
 def _rf_objective(trial: optuna.Trial, X_train, y_train, X_valid, y_valid) -> float:
     params = {
@@ -16,30 +51,34 @@ def _rf_objective(trial: optuna.Trial, X_train, y_train, X_valid, y_valid) -> fl
             "max_features", ["sqrt", "log2", 0.3, 0.5, 0.8, 1.0]
         ),
         "bootstrap": trial.suggest_categorical("bootstrap", [True, False]),
+        "class_weight": trial.suggest_categorical(
+            "class_weight", [None, "balanced", "balanced_subsample"]
+        ),
         "random_state": 42,
         "n_jobs": 64,
     }
 
-    model = RandomForestRegressor(**params)
+    model = RandomForestClassifier(**params)
     model.fit(X_train, y_train)
 
-    pred_valid = model.predict(X_valid)
+    pred_valid = model.predict_proba(X_valid)[:, 1]
 
-    rmse = root_mean_squared_error(y_valid, pred_valid)
-    ic = information_coefficient(y_valid, pred_valid)
-    ric = rank_information_coefficient(y_valid, pred_valid)
-    if np.isnan(ric) or np.isinf(ric):
-        ric = -1e9
+    roc_auc = _safe_roc_auc(y_valid, pred_valid)
+    pr_auc = _safe_pr_auc(y_valid, pred_valid)
+    ll = _safe_log_loss(y_valid, pred_valid)
+    brier = _safe_brier(y_valid, pred_valid)
 
-    trial.set_user_attr("rmse", rmse)
-    trial.set_user_attr("ic", ic)
-    trial.set_user_attr("rank_ic", ric)
+    trial.set_user_attr("roc_auc", roc_auc)
+    trial.set_user_attr("pr_auc", pr_auc)
+    trial.set_user_attr("log_loss", ll)
+    trial.set_user_attr("brier", brier)
 
-    trial.report(ric, step=0)
+    trial.report(roc_auc, step=0)
     if trial.should_prune():
         raise optuna.TrialPruned()
 
-    return ric
+    return roc_auc
+
 
 def _xgb_objective(trial: optuna.Trial, X_train, y_train, X_valid, y_valid) -> float:
     params = {
@@ -51,15 +90,15 @@ def _xgb_objective(trial: optuna.Trial, X_train, y_train, X_valid, y_valid) -> f
         "min_child_weight": trial.suggest_int("min_child_weight", 1, 20),
         "reg_alpha": trial.suggest_float("reg_alpha", 1e-8, 10.0, log=True),
         "reg_lambda": trial.suggest_float("reg_lambda", 1e-8, 10.0, log=True),
-        "objective": "reg:squarederror",
-        "eval_metric": "rmse",
+        "scale_pos_weight": trial.suggest_float("scale_pos_weight", 0.5, 5.0),
+        "objective": "binary:logistic",
+        "eval_metric": "logloss",
         "random_state": 42,
         "n_jobs": 64,
-        # optional:
         # "tree_method": "hist",
     }
 
-    model = XGBRegressor(**params)
+    model = XGBClassifier(**params)
 
     model.fit(
         X_train,
@@ -68,30 +107,31 @@ def _xgb_objective(trial: optuna.Trial, X_train, y_train, X_valid, y_valid) -> f
         verbose=False,
     )
 
-    pred_valid = model.predict(X_valid)
+    pred_valid = model.predict_proba(X_valid)[:, 1]
 
-    rmse = root_mean_squared_error(y_valid, pred_valid)
-    ic = information_coefficient(y_valid, pred_valid)
-    ric = rank_information_coefficient(y_valid, pred_valid)
-    if np.isnan(ric) or np.isinf(ric):
-        ric = -1e9
+    roc_auc = _safe_roc_auc(y_valid, pred_valid)
+    pr_auc = _safe_pr_auc(y_valid, pred_valid)
+    ll = _safe_log_loss(y_valid, pred_valid)
+    brier = _safe_brier(y_valid, pred_valid)
 
-    trial.set_user_attr("rmse", rmse)
-    trial.set_user_attr("ic", ic)
-    trial.set_user_attr("rank_ic", ric)
+    trial.set_user_attr("roc_auc", roc_auc)
+    trial.set_user_attr("pr_auc", pr_auc)
+    trial.set_user_attr("log_loss", ll)
+    trial.set_user_attr("brier", brier)
 
-    trial.report(ric, step=0)
+    trial.report(roc_auc, step=0)
     if trial.should_prune():
         raise optuna.TrialPruned()
 
-    return ric
+    return roc_auc
+
 
 MODEL_REGISTRY = {
-    "rf": RandomForestRegressor,
-    "xgb": XGBRegressor,
+    "rf": RandomForestClassifier,
+    "xgb": XGBClassifier,
 }
 
 OBJECTIVES = {
     "rf": _rf_objective,
-    "xgb": _xgb_objective
+    "xgb": _xgb_objective,
 }
