@@ -29,7 +29,6 @@ from constants import TARGET_HORIZON, INTERVAL
 # =========================================================
 # GLOBAL CONFIG
 # =========================================================
-INTERVAL = "1m"
 
 MODEL_TYPE = "xgb"
 MODEL_DIR = f"models/{MODEL_TYPE}"
@@ -63,11 +62,13 @@ BUY_FEE_RATE = 0.000 # TO CHECK
 MAX_OPEN_POSITIONS = 5
 
 PAIR_CONFIGS = [
-    {"pair": "ADA/USD", "symbol": "ADAUSDT", "coin": "ADA"},
+    {"pair": "AVAX/USD", "symbol": "AVAXUSDT", "coin": "AVAX"},
+    {"pair": "DOT/USD", "symbol": "DOTUSDT", "coin": "DOT"},
     {"pair": "XRP/USD", "symbol": "XRPUSDT", "coin": "XRP"},
     {"pair": "LINK/USD", "symbol": "LINKUSDT", "coin": "LINK"},
-    {"pair": "DOT/USD", "symbol": "DOTUSDT", "coin": "DOT"},
-    {"pair": "AVAX/USD", "symbol": "AVAXUSDT", "coin": "AVAX"},
+    {"pair": "LTC/USD", "symbol": "LTCUSDT", "coin": "LTC"},
+    {"pair": "ADA/USD", "symbol": "ADAUSDT", "coin": "ADA"},
+    {"pair": "SOL/USD", "symbol": "SOLUSDT", "coin": "SOL"},
 ]
 
 order_lock = threading.Lock()
@@ -228,7 +229,7 @@ class CoinTrader:
     # -----------------------------------------------------
     # Data
     # -----------------------------------------------------
-    def refresh_1m_data(self):
+    def refresh_data(self):
         if self.df.empty:
             recent = fetch_recent_klines_rest(
                 self.cfg.symbol,
@@ -340,7 +341,7 @@ class CoinTrader:
             direction="backward",
         )
 
-        feat_valid["vol_5_1m"] = feat_valid["close"].pct_change().rolling(5).std()
+        feat_valid["vol_5bar"] = feat_valid["close"].pct_change().rolling(5).std()
 
         feat_valid["dev_z"] = (
             (feat_valid["close"] - feat_valid["band_mean_30m"]) /
@@ -348,7 +349,7 @@ class CoinTrader:
         )
 
         feat_valid["vol_ratio_5_30"] = (
-            feat_valid["vol_5_1m"] / feat_valid["vol_30_30m"]
+            feat_valid["vol_5bar"] / feat_valid["vol_30_30m"]
         )
 
         sl_dev_z = ENTRY_DEV_Z - SL_DEV_DELTA
@@ -464,7 +465,7 @@ class CoinTrader:
             "band_std_30m",
             "sl_price_30m",
             "dev_z",
-            "vol_5_1m",
+            "vol_5bar",
             "vol_30_30m",
             "vol_ratio_5_30",
             "stake_pct",
@@ -493,7 +494,7 @@ class CoinTrader:
             "band_std_30m": float(latest["band_std_30m"]),
             "sl_price_30m": float(latest["sl_price_30m"]),
             "dev_z": float(latest["dev_z"]),
-            "vol_5_1m": float(latest["vol_5_1m"]),
+            "vol_5bar": float(latest["vol_5bar"]),
             "vol_30_30m": float(latest["vol_30_30m"]),
             "vol_ratio_5_30": float(latest["vol_ratio_5_30"]),
             "stake_pct": float(latest["stake_pct"]),
@@ -656,7 +657,7 @@ class CoinTrader:
     # Main step
     # -----------------------------------------------------
     def step(self):
-        self.refresh_1m_data()
+        self.refresh_data()
 
         if self.df.empty or len(self.df) < MIN_BARS_5M:
             self.save_data()
@@ -731,7 +732,7 @@ class CoinTrader:
                 self.step()
             except Exception as e:
                 self.log(f"ERROR: {e}", level="error", send_tele=True)
-            sleep_to_next_minute()
+            sleep_to_next_candle(5)
 
 # =========================================================
 # RUNNERS
@@ -741,11 +742,10 @@ def run_trader(cfg_dict):
     trader.run_forever()
 
 
-def sleep_to_next_minute():
+def sleep_to_next_candle(interval_minutes: int = 5):
     now = time.time()
-    next_minute = (int(now // 60) + 1) * 60
-    sleep_time = next_minute - now
-    time.sleep(sleep_time)
+    next_boundary = (int(now // (interval_minutes * 60)) + 1) * (interval_minutes * 60)
+    time.sleep(max(0, next_boundary - now))
 
 
 def main():
