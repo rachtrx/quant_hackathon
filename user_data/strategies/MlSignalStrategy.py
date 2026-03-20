@@ -15,6 +15,13 @@ from pandas import DataFrame
 
 from freqtrade.strategy import IStrategy
 
+import os
+import sys
+
+ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
+if ROOT not in sys.path:
+    sys.path.insert(0, ROOT)
+
 from constants import DATA_DIR, MODEL_DIR
 from features import add_features
 from controller import controller

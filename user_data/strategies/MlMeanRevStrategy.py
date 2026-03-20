@@ -49,9 +49,9 @@ class MlMeanRevStrategy(IStrategy):
     WINDOW_30M = 10
     VOL_FILTER_THRESH = 1.1
 
-    BASE_SIZE_PCT = 0.005   # 0.5%
-    MID_SIZE_PCT = 0.01     # 1.0%
-    HIGH_SIZE_PCT = 0.02    # 2.0%
+    BASE_SIZE_PCT = 0.06
+    MID_SIZE_PCT = 0.12 # doesnt trigger
+    HIGH_SIZE_PCT = 0.18 # doesnt trigger
 
     ENTRY_DEV_Z = -2.0
     SL_DEV = -2.5           # sl_price = mean + SL_DEV * std = mean - 2.5 * std
@@ -484,7 +484,7 @@ class MlMeanRevStrategy(IStrategy):
 
         # Best used with stake_amount = "unlimited" so max_stake ~= available wallet.
         # Then returning max_stake * stake_pct approximates "X% of wallet".
-        stake = max_stake * stake_pct
+        stake = proposed_stake * stake_pct
 
         if min_stake is not None:
             stake = max(stake, min_stake)

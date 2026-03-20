@@ -20,11 +20,14 @@ def compute_metrics(symbol):
     df, feature_cols = add_features(df, TARGET_HORIZON)
 
     # Compute metrics
-    # Volatility: average of vol_15 (15-period volatility)
-    volatility = df['vol_15'].mean()
+    # Volatility: use a longer window for slower trading cadence (e.g. 60-minute)
+    # 1 trade per minute suggests 60+ minute smoothing is more relevant than 15-min noise.
+    volatility = df['vol_30'].mean()
 
-    # Liquidity: average volume
-    liquidity = df['volume'].mean()
+    # Liquidity: average volume in USD (volume is base units; multiply by close price)
+    # This makes BTC/ETH comparable to altcoins in USD terms.
+    liquidity_usd = (df['volume'] * df['close']).mean()
+    liquidity = liquidity_usd
 
     # Mean reverting behavior: inverse of average absolute trend strength (lower trend = more reversion)
     # Also, average absolute distance from MA as oscillation measure
