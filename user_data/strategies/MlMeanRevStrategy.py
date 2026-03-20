@@ -17,7 +17,7 @@ from pandas import DataFrame
 
 from freqtrade.strategy import IStrategy
 
-from constants import DATA_DIR, INTERVAL, MODEL_DIR
+from constants import DATA_DIR, INTERVAL, MODEL_DIR, TARGET_HORIZON
 from features import add_features
 
 
@@ -44,7 +44,7 @@ class MlMeanRevStrategy(IStrategy):
     # ----------------------------
     MODEL_TYPE = "xgb"
     print("using xgb")
-    TARGET_HORIZON = 5
+    TARGET_HORIZON = TARGET_HORIZON
 
     WINDOW_30M = 10
     VOL_FILTER_THRESH = 1.1
@@ -215,12 +215,12 @@ class MlMeanRevStrategy(IStrategy):
         # Default output columns
         numeric_cols = [
             "pred",
+            "pred_proba",
+            "threshold",
             "band_mean_30m",
             "band_std_30m",
             "sl_price_30m",
             "dev_z",
-            "pred_price",
-            "pred_dev_z",
             "vol_5_1m",
             "vol_30_30m",
             "vol_ratio_5_30",
@@ -258,7 +258,8 @@ class MlMeanRevStrategy(IStrategy):
             return out
 
         X = feat_valid[feature_cols]
-        feat_valid["pred"] = model.predict(X)
+        feat_valid["pred_proba"] = model.predict_proba(X)[:, 1]
+        feat_valid["pred"] = feat_valid["pred_proba"] - 0.5
 
         # ----------------------------
         # 30m rolling mean/std using COMPLETED 30m bars only
@@ -315,23 +316,26 @@ class MlMeanRevStrategy(IStrategy):
             feat_valid["vol_5_1m"] / feat_valid["vol_30_30m"]
         )
 
-        feat_valid["pred_price"] = feat_valid["close"] * (1.0 + feat_valid["pred"])
-        feat_valid["pred_dev_z"] = (
-            (feat_valid["pred_price"] - feat_valid["band_mean_30m"]) /
-            feat_valid["band_std_30m"]
-        )
-
         feat_valid["sl_price_30m"] = (
             feat_valid["band_mean_30m"] + self.SL_DEV * feat_valid["band_std_30m"]
         )
 
         feat_valid["pass_vol_filter"] = feat_valid["vol_ratio_5_30"] < self.VOL_FILTER_THRESH
-        feat_valid["pass_pred_filter"] = feat_valid["pred"] > 0.0
+        
+        feat_valid["threshold"] = (
+            feat_valid["pred"].abs().shift(1).rolling(500, min_periods=100).quantile(0.8)
+        )
+        feat_valid["threshold"] = feat_valid["threshold"].fillna(0.03)
+
+        feat_valid["pass_pred_filter"] = feat_valid["pred"] > feat_valid["threshold"]
+
+        feat_valid["pass_flow_filter"] = feat_valid["imbalance_5"] > 0.05
 
         feat_valid["enter_logic"] = (
             (feat_valid["dev_z"] <= self.ENTRY_DEV_Z) &
             feat_valid["pass_vol_filter"] &
-            feat_valid["pass_pred_filter"]
+            feat_valid["pass_pred_filter"] &
+            feat_valid["pass_flow_filter"]
         )
 
         # Stake sizing from predicted reversion strength
@@ -339,21 +343,21 @@ class MlMeanRevStrategy(IStrategy):
 
         feat_valid.loc[
             feat_valid["enter_logic"] &
-            (feat_valid["pred_dev_z"] >= -2.0) &
-            (feat_valid["pred_dev_z"] < -1.0),
+            (feat_valid["pred"] >= 0.03) &
+            (feat_valid["pred"] < 0.05),
             "stake_pct"
         ] = self.BASE_SIZE_PCT
 
         feat_valid.loc[
             feat_valid["enter_logic"] &
-            (feat_valid["pred_dev_z"] >= -1.0) &
-            (feat_valid["pred_dev_z"] < 0.0),
+            (feat_valid["pred"] >= 0.05) &
+            (feat_valid["pred"] < 0.08),
             "stake_pct"
         ] = self.MID_SIZE_PCT
 
         feat_valid.loc[
             feat_valid["enter_logic"] &
-            (feat_valid["pred_dev_z"] >= 0.0),
+            (feat_valid["pred"] >= 0.08),
             "stake_pct"
         ] = self.HIGH_SIZE_PCT
 
@@ -366,13 +370,13 @@ class MlMeanRevStrategy(IStrategy):
         # keep only rows with everything we need
         keep_cols = [
             "date",
+            "pred_proba",
             "pred",
+            "threshold",
             "band_mean_30m",
             "band_std_30m",
             "sl_price_30m",
             "dev_z",
-            "pred_price",
-            "pred_dev_z",
             "vol_5_1m",
             "vol_30_30m",
             "vol_ratio_5_30",
@@ -389,13 +393,13 @@ class MlMeanRevStrategy(IStrategy):
         )
 
         for c in [
+            "pred_proba",
             "pred",
+            "threshold",
             "band_mean_30m",
             "band_std_30m",
             "sl_price_30m",
             "dev_z",
-            "pred_price",
-            "pred_dev_z",
             "vol_5_1m",
             "vol_30_30m",
             "vol_ratio_5_30",
@@ -521,5 +525,10 @@ class MlMeanRevStrategy(IStrategy):
 
         if pd.notna(sl_price) and current_rate <= float(sl_price):
             return "sl_band"
+        
+        pred = row.get("pred", np.nan)
+        threshold = row.get("threshold", np.nan)
+        if pd.notna(pred) and pd.notna(threshold) and float(pred) < float(threshold) * 0.5:
+            return "pred_weakened"
 
         return None

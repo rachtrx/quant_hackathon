@@ -43,10 +43,10 @@ def add_features(df: pd.DataFrame, target_horizon: int) -> tuple[pd.DataFrame, l
     df[f"target_{target_horizon}"] = (fwd_ret > 0).astype(int)
 
     for w in mom_windows:
-        df[f"mom_{w}"] = df["close"].pct_change(w)
+        df[f"mom_{w}"] = df["close"].pct_change(w, fill_method=None)
 
-    df["volume_mom_5"] = df["volume"].pct_change(5)
-    df["num_trades_mom_5"] = df["num_trades"].pct_change(5)
+    df["volume_mom_5"] = df["volume"].pct_change(5, fill_method=None)
+    df["num_trades_mom_5"] = df["num_trades"].pct_change(5, fill_method=None)
 
     for w in vol_windows:
         df[f"vol_{w}"] = df["ret_1"].rolling(w).std()

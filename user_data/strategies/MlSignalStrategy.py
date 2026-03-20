@@ -15,7 +15,7 @@ from pandas import DataFrame
 
 from freqtrade.strategy import IStrategy
 
-from constants import DATA_DIR, INTERVAL, MODEL_DIR
+from constants import DATA_DIR, INTERVAL, MODEL_DIR, TARGET_HORIZON
 from features import add_features
 from controller import controller
 
@@ -28,7 +28,7 @@ class MlSignalStrategy(IStrategy):
     timeframe = INTERVAL
 
     minimal_roi = { }
-    stoploss = -0.10
+    stoploss = -0.01
     trailing_stop = False
 
     process_only_new_candles = True
@@ -39,7 +39,7 @@ class MlSignalStrategy(IStrategy):
     ignore_roi_if_entry_signal = False
 
     MODEL_TYPE = "xgb"
-    TARGET_HORIZON = 5
+    TARGET_HORIZON = TARGET_HORIZON
     MIN_PRED_HISTORY = 100
     DEFAULT_THRESHOLD = 0.03
     PRED_HIST_WINDOW = 500
