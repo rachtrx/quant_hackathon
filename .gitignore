@@ -40,3 +40,7 @@ venv.bak/
 user_data/data
 binance_data/
 *.log
+
+# indiv training / results
+/backtest_results
+features.py
