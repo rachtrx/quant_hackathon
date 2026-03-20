@@ -1,0 +1,36 @@
+{
+  "strategy_name": "MlMeanRevStrategy",
+  "params": {
+    "roi": {},
+    "stoploss": {
+      "stoploss": -0.99
+    },
+    "trailing": {
+      "trailing_stop": false,
+      "trailing_stop_positive": null,
+      "trailing_stop_positive_offset": 0.0,
+      "trailing_only_offset_is_reached": false
+    },
+    "max_open_trades": {
+      "max_open_trades": 3
+    },
+    "buy": {
+      "ABS_MIN_PRED": 0.025,
+      "BASE_SIZE_PCT": 0.008,
+      "ENTRY_DEV_Z": -2.46,
+      "MID_SIZE_PCT": 0.007,
+      "PRED_ENTRY_QUANTILE": 0.58,
+      "PRED_HIGH_DELTA": 0.08,
+      "PRED_MID_DELTA": 0.08,
+      "PRED_MIN_PERIODS_FRAC": 0.81,
+      "PRED_ROLLING_WINDOW": 809,
+      "VOL_FILTER_THRESH": 1.48,
+      "WINDOW_30M": 29
+    },
+    "sell": {
+      "SL_DEV_DELTA": 0.76
+    }
+  },
+  "ft_stratparam_v": 1,
+  "export_time": "2026-03-20 11:26:40.770627+00:00"
+}

@@ -1,0 +1,48 @@
+{
+  "strategy_name": "MlSignalStrategy",
+  "params": {
+    "roi": {
+      "0": 100
+    },
+    "stoploss": {
+      "stoploss": -0.1
+    },
+    "trailing": {
+      "trailing_stop": false,
+      "trailing_stop_positive": null,
+      "trailing_stop_positive_offset": 0.0,
+      "trailing_only_offset_is_reached": false
+    },
+    "max_open_trades": {
+      "max_open_trades": 3
+    },
+    "sell": {
+      "sell_dist_z_threshold": 0.0,
+      "sell_imbalance_threshold": 0.0,
+      "sell_on_long_signal_loss": false,
+      "sell_on_position_flip": false,
+      "sell_pred_threshold": 0.0
+    },
+    "buy": {
+      "breakout_level": 1.08,
+      "buy_threshold": 0.022,
+      "confirm_min_imbalance": 0.07,
+      "confirm_soft_boost": 1.03,
+      "confirm_strong_boost": 1.06,
+      "imbalance_negative": -0.14,
+      "imbalance_soft": 0.0,
+      "imbalance_strong": 0.22,
+      "meanrev_dist_z": -2.9,
+      "meanrev_position_size": 0.31,
+      "mild_breakout_boost": 1.04,
+      "min_pred_history_delta": 114,
+      "negative_confirm_penalty": 0.95,
+      "pred_hist_window": 415,
+      "pred_quantile": 0.92,
+      "strong_breakout_boost": 1.01,
+      "strong_breakout_level": 1.43
+    }
+  },
+  "ft_stratparam_v": 1,
+  "export_time": "2026-03-20 11:52:22.177152+00:00"
+}

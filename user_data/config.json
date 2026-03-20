@@ -52,7 +52,11 @@
         "SOL/USDT"
       ],
       "pair_whitelist": [
-        "XRP/USDT"
+        "AVAX/USDT",
+        "DOT/USDT",
+        "XRP/USDT",
+        "LINK/USDT",
+        "LTC/USDT"
       ],
       "pair_blacklist": []
     },
