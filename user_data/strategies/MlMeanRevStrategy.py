@@ -15,13 +15,9 @@ import numpy as np
 import pandas as pd
 from pandas import DataFrame
 
-from freqtrade.strategy import (
-    IStrategy,
-    IntParameter,
-    DecimalParameter,
-)
+from freqtrade.strategy import IStrategy
 
-from constants import DATA_DIR, INTERVAL, MODEL_DIR, TARGET_HORIZON
+from constants import DATA_DIR, MODEL_DIR, INTERVAL
 from features import add_features
 
 
@@ -29,9 +25,8 @@ class MlMeanRevStrategy(IStrategy):
     INTERFACE_VERSION = 3
 
     can_short = False
-    timeframe = INTERVAL
 
-    # Exits handled mainly in custom_exit()
+    # We handle exits ourselves via custom_exit().
     minimal_roi = {}
     stoploss = -0.99
     trailing_stop = False
@@ -43,36 +38,22 @@ class MlMeanRevStrategy(IStrategy):
     exit_profit_only = False
     ignore_roi_if_entry_signal = False
 
-    # --------------------------------------------------
-    # Fixed strategy settings
-    # --------------------------------------------------
+    # ----------------------------
+    # Strategy parameters
+    # ----------------------------
     MODEL_TYPE = "xgb"
-    TARGET_HORIZON = TARGET_HORIZON
-    MIN_BAND_STD = 1e-8
+    print("using xgb")
+    TARGET_HORIZON = 5
 
-    # --------------------------------------------------
-    # Hyperoptable parameters
-    # --------------------------------------------------
-    # 30m band settings
-    WINDOW_30M = IntParameter(5, 30, default=10, space="buy")
-    ENTRY_DEV_Z = DecimalParameter(-3.5, -1.0, decimals=2, default=-2.20, space="buy")
-    SL_DEV_DELTA = DecimalParameter(0.2, 2.0, decimals=2, default=0.50, space="sell")
+    WINDOW_30M = 10
+    VOL_FILTER_THRESH = 1.1
 
-    # Volatility filter
-    VOL_FILTER_THRESH = DecimalParameter(0.70, 2.00, decimals=2, default=1.10, space="buy")
+    BASE_SIZE_PCT = 0.02
+    MID_SIZE_PCT = 0.04 # not triggered
+    HIGH_SIZE_PCT = 0.08 # not triggered
 
-    # Stake sizing
-    BASE_SIZE_PCT = DecimalParameter(0.002, 0.010, decimals=3, default=0.005, space="buy")
-    MID_SIZE_PCT = DecimalParameter(0.005, 0.020, decimals=3, default=0.010, space="buy")
-    HIGH_SIZE_PCT = DecimalParameter(0.010, 0.050, decimals=3, default=0.020, space="buy")
-
-    # Regression prediction thresholds
-    ABS_MIN_PRED = DecimalParameter(0.000, 0.030, decimals=3, default=0.003, space="buy")
-    PRED_ENTRY_QUANTILE = DecimalParameter(0.45, 0.80, decimals=2, default=0.55, space="buy")
-    PRED_MID_DELTA = DecimalParameter(0.01, 0.20, decimals=2, default=0.10, space="buy")
-    PRED_HIGH_DELTA = DecimalParameter(0.01, 0.20, decimals=2, default=0.10, space="buy")
-    PRED_ROLLING_WINDOW = IntParameter(100, 1000, default=500, space="buy")
-    PRED_MIN_PERIODS_FRAC = DecimalParameter(0.2, 1.0, decimals=2, default=0.50, space="buy")
+    ENTRY_DEV_Z = -2.0
+    SL_DEV = -2.5           # sl_price = mean + SL_DEV * std = mean - 2.5 * std
 
     def bot_start(self, **kwargs) -> None:
         self._model_cache: dict[str, Any] = {}
@@ -83,9 +64,9 @@ class MlMeanRevStrategy(IStrategy):
         self.model_root = Path(MODEL_DIR) / self.MODEL_TYPE
         self.raw_root = Path(DATA_DIR)
 
-    # --------------------------------------------------
+    # ------------------------------------------------------------------
     # Helpers
-    # --------------------------------------------------
+    # ------------------------------------------------------------------
     def _pair_to_symbol(self, pair: str) -> str:
         return pair.replace("/", "").replace(":", "")
 
@@ -130,8 +111,9 @@ class MlMeanRevStrategy(IStrategy):
 
     def _load_raw_pair_data(self, pair: str) -> pd.DataFrame:
         """
-        Load richer raw parquet containing extra fields needed by feature engineering.
-        Keep only non-OHLCV extras to avoid clashing with freqtrade OHLCV columns.
+        Load richer raw parquet containing Binance-specific fields that your
+        feature engineering may require. We only keep non-OHLCV extras to avoid
+        clashing with freqtrade's own OHLCV columns.
         """
         symbol = self._pair_to_symbol(pair)
 
@@ -183,8 +165,8 @@ class MlMeanRevStrategy(IStrategy):
 
         temp = df.copy()
         temp["date"] = pd.to_datetime(temp["date"], utc=True)
-
         ts = pd.Timestamp(current_time)
+
         if ts.tzinfo is None:
             ts = ts.tz_localize("UTC")
         else:
@@ -196,40 +178,15 @@ class MlMeanRevStrategy(IStrategy):
 
         return temp.iloc[-1]
 
-    # --------------------------------------------------
+    # ------------------------------------------------------------------
     # Indicators
-    # --------------------------------------------------
+    # ------------------------------------------------------------------
     def populate_indicators(self, dataframe: DataFrame, metadata: dict) -> DataFrame:
         pair = metadata["pair"]
         model, feature_cols, meta = self._load_pair_artifacts(pair)
 
         test_start_time = meta["test_start_time"]
         test_end_time = meta["test_end_time"]
-
-        # Resolve hyperopt params once
-        window_30m = int(self.WINDOW_30M.value)
-        entry_dev_z = float(self.ENTRY_DEV_Z.value)
-        sl_dev_z = entry_dev_z - float(self.SL_DEV_DELTA.value)
-        vol_filter_thresh = float(self.VOL_FILTER_THRESH.value)
-
-        base_size_pct = float(self.BASE_SIZE_PCT.value)
-        mid_size_pct = float(self.MID_SIZE_PCT.value)
-        high_size_pct = float(self.HIGH_SIZE_PCT.value)
-
-        abs_min_pred = float(self.ABS_MIN_PRED.value)
-        pred_entry_q = float(self.PRED_ENTRY_QUANTILE.value)
-        pred_mid_q = pred_entry_q + float(self.PRED_MID_DELTA.value)
-        pred_high_q = pred_mid_q + float(self.PRED_HIGH_DELTA.value)
-
-        pred_mid_q = min(pred_mid_q, 0.95)
-        pred_high_q = min(pred_high_q, 0.99)
-
-        pred_rolling_window = int(self.PRED_ROLLING_WINDOW.value)
-        pred_min_periods = max(
-            1,
-            int(pred_rolling_window * float(self.PRED_MIN_PERIODS_FRAC.value))
-        )
-        pred_min_periods = min(pred_min_periods, pred_rolling_window)
 
         df = dataframe.copy()
         out = dataframe.copy()
@@ -245,22 +202,18 @@ class MlMeanRevStrategy(IStrategy):
             (out["date"] <= test_end_time)
         )
 
-        # --------------------------------------------------
-        # Merge richer raw fields
-        # --------------------------------------------------
+        # Merge richer raw fields for feature generation
         raw_df = self._load_raw_pair_data(pair)
         df = df.merge(raw_df, on="date", how="left")
 
-        # --------------------------------------------------
-        # Feature engineering
-        # --------------------------------------------------
+        # ----------------------------
+        # Feature engineering + model prediction
+        # ----------------------------
         feat_df, _ = add_features(df.copy(), target_horizon=self.TARGET_HORIZON)
 
+        # Default output columns
         numeric_cols = [
             "pred",
-            "threshold",
-            "pred_mid_threshold",
-            "pred_high_threshold",
             "band_mean_30m",
             "band_std_30m",
             "sl_price_30m",
@@ -303,15 +256,13 @@ class MlMeanRevStrategy(IStrategy):
         if feat_valid.empty:
             return out
 
-        # --------------------------------------------------
-        # Regression prediction
-        # --------------------------------------------------
         X = feat_valid[feature_cols]
         feat_valid["pred"] = model.predict(X)
 
-        # --------------------------------------------------
-        # 30m rolling band from completed 30m bars only
-        # --------------------------------------------------
+        # ----------------------------
+        # 30m rolling mean/std using COMPLETED 30m bars only
+        # to avoid lookahead leakage in backtests
+        # ----------------------------
         df_30 = (
             df.set_index("date")
             .resample("30min")
@@ -321,39 +272,39 @@ class MlMeanRevStrategy(IStrategy):
             .reset_index()
         )
 
-        if df_30.empty:
-            return out
+        if not df_30.empty:
+            df_30["band_mean_30m"] = (
+                df_30["close_30m"].rolling(self.WINDOW_30M).mean()
+            )
+            df_30["band_std_30m"] = (
+                df_30["close_30m"].rolling(self.WINDOW_30M).std()
+            )
+            df_30["vol_30_30m"] = (
+                df_30["close_30m"].pct_change().rolling(30).std()
+            )
 
-        df_30["band_mean_30m"] = df_30["close_30m"].rolling(window_30m).mean()
-        df_30["band_std_30m"] = df_30["close_30m"].rolling(window_30m).std()
-        df_30["vol_30_30m"] = df_30["close_30m"].pct_change().rolling(30).std()
+            # Use only completed 30m bars:
+            # shift the bar timestamp forward by 30m so a 10:00-10:29 bar becomes
+            # available from 10:30 onward.
+            df_30["date_available"] = df_30["date"] + pd.Timedelta(minutes=30)
 
-        df_30["band_std_30m"] = df_30["band_std_30m"].clip(lower=self.MIN_BAND_STD)
-        df_30["vol_30_30m"] = df_30["vol_30_30m"].clip(lower=self.MIN_BAND_STD)
-
-        # completed 30m bar only available after close
-        df_30["date_available"] = df_30["date"] + pd.Timedelta(minutes=30)
-
-        feat_valid = pd.merge_asof(
-            feat_valid.sort_values("date"),
-            df_30[
-                [
+            feat_valid = pd.merge_asof(
+                feat_valid.sort_values("date"),
+                df_30[[
                     "date_available",
                     "band_mean_30m",
                     "band_std_30m",
                     "vol_30_30m",
-                ]
-            ].sort_values("date_available"),
-            left_on="date",
-            right_on="date_available",
-            direction="backward",
-        )
+                ]].sort_values("date_available"),
+                left_on="date",
+                right_on="date_available",
+                direction="backward",
+            )
 
-        # --------------------------------------------------
-        # Short-term vol and band metrics
-        # --------------------------------------------------
+        # 5m short vol
         feat_valid["vol_5_5m"] = feat_valid["close"].pct_change().rolling(5).std()
 
+        # Main band logic
         feat_valid["dev_z"] = (
             (feat_valid["close"] - feat_valid["band_mean_30m"]) /
             feat_valid["band_std_30m"]
@@ -370,133 +321,51 @@ class MlMeanRevStrategy(IStrategy):
         )
 
         feat_valid["sl_price_30m"] = (
-            feat_valid["band_mean_30m"] + sl_dev_z * feat_valid["band_std_30m"]
+            feat_valid["band_mean_30m"] + self.SL_DEV * feat_valid["band_std_30m"]
         )
 
-        # --------------------------------------------------
-        # Vol filter
-        # --------------------------------------------------
-        feat_valid["pass_vol_filter"] = (
-            feat_valid["vol_ratio_5_30"] < vol_filter_thresh
-        )
+        feat_valid["pass_vol_filter"] = feat_valid["vol_ratio_5_30"] < self.VOL_FILTER_THRESH
+        feat_valid["pass_pred_filter"] = feat_valid["pred"] > 0.0
 
-        # --------------------------------------------------
-        # Adaptive regression thresholds
-        # based on rolling quantiles of prior predictions
-        # --------------------------------------------------
-        pred_shifted = feat_valid["pred"].shift(1)
-
-        feat_valid["threshold"] = (
-            pred_shifted
-            .rolling(pred_rolling_window, min_periods=pred_min_periods)
-            .quantile(pred_entry_q)
-        )
-
-        feat_valid["pred_mid_threshold"] = (
-            pred_shifted
-            .rolling(pred_rolling_window, min_periods=pred_min_periods)
-            .quantile(pred_mid_q)
-        )
-
-        feat_valid["pred_high_threshold"] = (
-            pred_shifted
-            .rolling(pred_rolling_window, min_periods=pred_min_periods)
-            .quantile(pred_high_q)
-        )
-
-        for c in ["threshold", "pred_mid_threshold", "pred_high_threshold"]:
-            feat_valid[c] = feat_valid[c].fillna(abs_min_pred)
-            feat_valid[c] = feat_valid[c].clip(lower=abs_min_pred)
-
-        feat_valid["pred_mid_threshold"] = np.maximum(
-            feat_valid["pred_mid_threshold"],
-            feat_valid["threshold"],
-        )
-        feat_valid["pred_high_threshold"] = np.maximum(
-            feat_valid["pred_high_threshold"],
-            feat_valid["pred_mid_threshold"],
-        )
-
-        # --------------------------------------------------
-        # Prediction filter
-        # require positive predicted return above threshold
-        # --------------------------------------------------
-        feat_valid["pass_pred_filter"] = feat_valid["pred"] >= feat_valid["threshold"]
-
-        # --------------------------------------------------
-        # Entry logic
-        # --------------------------------------------------
         feat_valid["enter_logic"] = (
-            (feat_valid["dev_z"] <= entry_dev_z) &
+            (feat_valid["dev_z"] <= self.ENTRY_DEV_Z) &
             feat_valid["pass_vol_filter"] &
             feat_valid["pass_pred_filter"]
         )
 
-        # --------------------------------------------------
-        # Stake sizing from predicted strength
-        # --------------------------------------------------
+        # Stake sizing from predicted reversion strength
         feat_valid["stake_pct"] = 0.0
 
         feat_valid.loc[
             feat_valid["enter_logic"] &
-            (feat_valid["pred"] >= feat_valid["threshold"]) &
-            (feat_valid["pred"] < feat_valid["pred_mid_threshold"]),
+            (feat_valid["pred_dev_z"] >= -2.0) &
+            (feat_valid["pred_dev_z"] < -1.0),
             "stake_pct"
-        ] = base_size_pct
+        ] = self.BASE_SIZE_PCT
 
         feat_valid.loc[
             feat_valid["enter_logic"] &
-            (feat_valid["pred"] >= feat_valid["pred_mid_threshold"]) &
-            (feat_valid["pred"] < feat_valid["pred_high_threshold"]),
+            (feat_valid["pred_dev_z"] >= -1.0) &
+            (feat_valid["pred_dev_z"] < 0.0),
             "stake_pct"
-        ] = mid_size_pct
+        ] = self.MID_SIZE_PCT
 
         feat_valid.loc[
             feat_valid["enter_logic"] &
-            (feat_valid["pred"] >= feat_valid["pred_high_threshold"]),
+            (feat_valid["pred_dev_z"] >= 0.0),
             "stake_pct"
-        ] = high_size_pct
+        ] = self.HIGH_SIZE_PCT
 
-        feat_valid["enter_reason"] = np.select(
-            [
-                feat_valid["stake_pct"] == base_size_pct,
-                feat_valid["stake_pct"] == mid_size_pct,
-                feat_valid["stake_pct"] == high_size_pct,
-            ],
-            [
-                "meanrev_long_small",
-                "meanrev_long_mid",
-                "meanrev_long_high",
-            ],
-            default="no_trade",
+        feat_valid["enter_reason"] = np.where(
+            feat_valid["enter_logic"] & (feat_valid["stake_pct"] > 0),
+            "meanrev_long",
+            "no_trade",
         )
 
-        # --------------------------------------------------
-        # Optional debug
-        # --------------------------------------------------
-        if len(feat_valid) > 0:
-            dev_pass = float((feat_valid["dev_z"] <= entry_dev_z).mean())
-            vol_pass = float(feat_valid["pass_vol_filter"].mean())
-            pred_pass = float(feat_valid["pass_pred_filter"].mean())
-            enter_pass = float(feat_valid["enter_logic"].mean())
-
-            print(
-                f"[{pair}] rows={len(feat_valid)} "
-                f"dev_pass={dev_pass:.4f} "
-                f"vol_pass={vol_pass:.4f} "
-                f"pred_pass={pred_pass:.4f} "
-                f"enter_pass={enter_pass:.4f}"
-            )
-
-        # --------------------------------------------------
-        # Map back to freqtrade output df
-        # --------------------------------------------------
+        # keep only rows with everything we need
         keep_cols = [
             "date",
             "pred",
-            "threshold",
-            "pred_mid_threshold",
-            "pred_high_threshold",
             "band_mean_30m",
             "band_std_30m",
             "sl_price_30m",
@@ -512,7 +381,6 @@ class MlMeanRevStrategy(IStrategy):
             "pass_pred_filter",
             "enter_reason",
         ]
-
         feat_trim = (
             feat_valid[keep_cols]
             .drop_duplicates(subset=["date"], keep="last")
@@ -521,9 +389,6 @@ class MlMeanRevStrategy(IStrategy):
 
         for c in [
             "pred",
-            "threshold",
-            "pred_mid_threshold",
-            "pred_high_threshold",
             "band_mean_30m",
             "band_std_30m",
             "sl_price_30m",
@@ -540,7 +405,7 @@ class MlMeanRevStrategy(IStrategy):
 
         for c in ["enter_logic", "pass_vol_filter", "pass_pred_filter"]:
             out[c] = (
-                out["date"]Z
+                out["date"]
                 .map(feat_trim[c])
                 .astype("boolean")
                 .fillna(False)
@@ -551,9 +416,9 @@ class MlMeanRevStrategy(IStrategy):
 
         return out
 
-    # --------------------------------------------------
+    # ------------------------------------------------------------------
     # Entry / Exit
-    # --------------------------------------------------
+    # ------------------------------------------------------------------
     def populate_entry_trend(self, dataframe: DataFrame, metadata: dict) -> DataFrame:
         df = dataframe.copy()
 
@@ -575,9 +440,12 @@ class MlMeanRevStrategy(IStrategy):
     def populate_exit_trend(self, dataframe: DataFrame, metadata: dict) -> DataFrame:
         df = dataframe.copy()
 
+        # Exits are mainly handled in custom_exit().
+        # Keep these columns here because freqtrade expects them.
         df["exit_long"] = 0
         df["exit_tag"] = None
 
+        # Safety exit if we leave the model's intended test window.
         df.loc[
             (
                 (~df["in_test_window"]) &
@@ -588,9 +456,9 @@ class MlMeanRevStrategy(IStrategy):
 
         return df
 
-    # --------------------------------------------------
+    # ------------------------------------------------------------------
     # Dynamic stake sizing
-    # --------------------------------------------------
+    # ------------------------------------------------------------------
     def custom_stake_amount(
         self,
         pair: str,
@@ -609,20 +477,24 @@ class MlMeanRevStrategy(IStrategy):
             return proposed_stake
 
         stake_pct = float(row.get("stake_pct", 0.0) or 0.0)
+
         if stake_pct <= 0:
             return 0.0
 
+        # Best used with stake_amount = "unlimited" so max_stake ~= available wallet.
+        # Then returning max_stake * stake_pct approximates "X% of wallet".
         stake = max_stake * stake_pct
 
         if min_stake is not None:
             stake = max(stake, min_stake)
 
         stake = min(stake, max_stake)
+
         return float(stake)
 
-    # --------------------------------------------------
-    # TP / SL from 30m bands
-    # --------------------------------------------------
+    # ------------------------------------------------------------------
+    # TP / SL from rolling 30m bands
+    # ------------------------------------------------------------------
     def custom_exit(
         self,
         pair: str,
@@ -643,11 +515,9 @@ class MlMeanRevStrategy(IStrategy):
         band_mean = row.get("band_mean_30m", np.nan)
         sl_price = row.get("sl_price_30m", np.nan)
 
-        # TP: mean reversion reached
         if pd.notna(band_mean) and current_rate >= float(band_mean):
             return "tp_mean_revert"
 
-        # SL: price moved deeper below entry zone
         if pd.notna(sl_price) and current_rate <= float(sl_price):
             return "sl_band"
 
