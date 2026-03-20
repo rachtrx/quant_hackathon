@@ -41,9 +41,8 @@ user_data/data
 user_data/backtest_results
 user_data/plot
 binance_data/
-**/*live.parquet
-
-# Logging
 *.log
+*.zip
 *.out
-models/
+*.parquet
+/models
