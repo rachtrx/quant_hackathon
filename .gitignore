@@ -43,4 +43,3 @@ binance_data/
 
 # indiv training / results
 /backtest_results
-features.py
