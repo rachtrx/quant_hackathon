@@ -46,3 +46,4 @@ binance_data/
 # Logging
 *.log
 *.out
+models/
