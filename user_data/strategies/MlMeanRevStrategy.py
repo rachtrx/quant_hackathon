@@ -58,14 +58,8 @@ class MlMeanRevStrategy(IStrategy):
     ENTRY_DEV_Z = DecimalParameter(-3.5, -1.0, decimals=2, default=-2.20, space="buy")
     SL_DEV_DELTA = DecimalParameter(0.2, 2.0, decimals=2, default=0.50, space="sell")
 
-<<<<<<< HEAD
-    BASE_SIZE_PCT = 0.06
-    MID_SIZE_PCT = 0.12 # doesnt trigger
-    HIGH_SIZE_PCT = 0.18 # doesnt trigger
-=======
     # Volatility filter
     VOL_FILTER_THRESH = DecimalParameter(0.70, 2.00, decimals=2, default=1.10, space="buy")
->>>>>>> 2192eb33f6f5ccd47c1232431fccff576a56c179
 
     # Stake sizing
     BASE_SIZE_PCT = DecimalParameter(0.002, 0.010, decimals=3, default=0.005, space="buy")
@@ -546,7 +540,7 @@ class MlMeanRevStrategy(IStrategy):
 
         for c in ["enter_logic", "pass_vol_filter", "pass_pred_filter"]:
             out[c] = (
-                out["date"]
+                out["date"]Z
                 .map(feat_trim[c])
                 .astype("boolean")
                 .fillna(False)
@@ -618,13 +612,7 @@ class MlMeanRevStrategy(IStrategy):
         if stake_pct <= 0:
             return 0.0
 
-<<<<<<< HEAD
-        # Best used with stake_amount = "unlimited" so max_stake ~= available wallet.
-        # Then returning max_stake * stake_pct approximates "X% of wallet".
-        stake = proposed_stake * stake_pct
-=======
         stake = max_stake * stake_pct
->>>>>>> 2192eb33f6f5ccd47c1232431fccff576a56c179
 
         if min_stake is not None:
             stake = max(stake, min_stake)
