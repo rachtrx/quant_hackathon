@@ -1,0 +1,32 @@
+{
+  "symbol": "LINKUSDT",
+  "target_horizon": 5,
+  "target_col": "target_ret_fwd_5",
+  "model_type": "rf",
+  "study_best_value": 0.08410268497683714,
+  "model_params": {
+    "n_estimators": 200,
+    "max_depth": 6,
+    "min_samples_split": 184,
+    "min_samples_leaf": 85,
+    "max_features": "sqrt",
+    "random_state": 42,
+    "n_jobs": -1
+  },
+  "n_features": 31,
+  "feature_cols_path": "models/rf/LINKUSDT__h5_feature_cols.json",
+  "model_path": "models/rf/LINKUSDT__h5_model.joblib",
+  "feature_importance_path": "models/rf/LINKUSDT__h5_feature_importance.csv",
+  "train_ic": 0.17998298625101192,
+  "test_ic": 0.04659892430618941,
+  "train_rank_ic": 0.08045449516503908,
+  "test_rank_ic": 0.10041391285490876,
+  "train_rmse": 0.0035438918566506605,
+  "test_rmse": 0.0027960804752853365,
+  "train_start_time": "2025-09-01T01:13:00+00:00",
+  "train_end_time": "2026-02-04T03:57:00+00:00",
+  "val_start_time": "2026-01-02T22:12:00+00:00",
+  "val_end_time": "2026-02-04T03:57:00+00:00",
+  "test_start_time": "2026-02-04T03:58:00+00:00",
+  "test_end_time": "2026-03-17T16:33:00+00:00"
+}

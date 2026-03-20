@@ -15,7 +15,7 @@ def _rf_objective(trial: optuna.Trial, X_train, y_train, X_valid, y_valid) -> fl
         "max_features": trial.suggest_categorical("max_features", ["sqrt"]),  # Fewer options
         "bootstrap": True,
         "random_state": 42,
-        "n_jobs": -1,
+        "n_jobs": 64,
     }
 
     model = RandomForestRegressor(**params)
@@ -52,7 +52,7 @@ def _xgb_objective(trial: optuna.Trial, X_train, y_train, X_valid, y_valid) -> f
         "objective": "reg:squarederror",
         "eval_metric": "rmse",
         "random_state": 42,
-        "n_jobs": -1,
+        "n_jobs": 64,
         # optional:
         # "tree_method": "hist",
     }

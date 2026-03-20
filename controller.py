@@ -3,41 +3,48 @@ import pandas as pd
 def controller(row: pd.Series, pred: float, threshold: float = 0.001) -> dict:
     is_trending = row["is_trending"] == 1
     is_ranging = not is_trending
-    is_breakout = row["vol_ratio_5_30"] > 1.1
 
-    # raw regime signals only
+    vol_ratio = float(row.get("vol_ratio_5_30", 1.0))
+    dist_z = float(row.get("dist_ma_15_z", 0.0))
+    imbalance_5 = float(row.get("imbalance_5", 0.0))
+
+    # Soft breakout / confirmation signals
+    is_breakout = vol_ratio > 1.1
+    breakout_boost = 1.0
+    if vol_ratio > 1.2:
+        breakout_boost = 1.15
+    elif vol_ratio > 1.1:
+        breakout_boost = 1.08
+
+    confirm_boost = 1.0
+    if imbalance_5 > 0.10:
+        confirm_boost = 1.15
+    elif imbalance_5 > 0.05:
+        confirm_boost = 1.08
+    elif imbalance_5 < -0.05:
+        confirm_boost = 0.85
+
+    adjusted_pred = pred * breakout_boost * confirm_boost
+
+    # Trend regime: allow breakout to help, but do not require it
     trend_long = (
-        (pred > threshold)
-        and is_trending
-        and is_breakout
-    )
-    trend_short = (
-        (pred < -threshold)
-        and is_trending
-        and is_breakout
+        is_trending
+        and adjusted_pred > threshold
     )
 
+    # Mean reversion regime: require stronger stretch and no breakout
     meanrev_long = (
-        (pred > threshold)
-        and is_ranging
+        is_ranging
         and (not is_breakout)
-        and (row["dist_ma_15_z"] < -1.0)
-    )
-    meanrev_short = (
-        (pred < -threshold)
-        and is_ranging
-        and (not is_breakout)
-        and (row["dist_ma_15_z"] > 1.0)
+        and dist_z < -1.0
+        and adjusted_pred > threshold
     )
 
     long_signal_raw = trend_long or meanrev_long
-    short_signal_raw = trend_short or meanrev_short
+    long_confirm = imbalance_5 > 0.0
 
-    long_confirm = row["imbalance_5"] > 0.05
-    short_confirm = row["imbalance_5"] < -0.05
-
+    # Final long signal
     long_signal = long_signal_raw and long_confirm
-    short_signal = short_signal_raw and short_confirm
 
     position = 0.0
     reason = "no_trade"
@@ -45,26 +52,20 @@ def controller(row: pd.Series, pred: float, threshold: float = 0.001) -> dict:
     if trend_long and long_confirm:
         position = 1.0
         reason = "trend_long"
-    elif trend_short and short_confirm:
-        position = -1.0
-        reason = "trend_short"
     elif meanrev_long and long_confirm:
         position = 0.5
         reason = "meanrev_long"
-    elif meanrev_short and short_confirm:
-        position = -0.5
-        reason = "meanrev_short"
 
     return {
-        "signal": 1 if position > 0 else (-1 if position < 0 else 0),
+        "signal": 1 if position > 0 else 0,
         "position": position,
         "reason": reason,
         "long_signal_raw": long_signal_raw,
-        "short_signal_raw": short_signal_raw,
         "long_signal": long_signal,
-        "short_signal": short_signal,
         "is_trending": is_trending,
         "is_breakout": is_breakout,
         "long_confirm": long_confirm,
-        "short_confirm": short_confirm,
+        "adjusted_pred": adjusted_pred,
+        "breakout_boost": breakout_boost,
+        "confirm_boost": confirm_boost,
     }

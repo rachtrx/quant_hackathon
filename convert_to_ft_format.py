@@ -1,10 +1,10 @@
 import os
 import pandas as pd
+from constants import SYMBOLS
 
 DATA_DIR = "binance_data"
 OUT_DIR = "user_data/data/binance"
 
-SYMBOLS = ["BTCUSDT", "ETHUSDT", "BNBUSDT", "ADAUSDT", "XRPUSDT"]
 INTERVAL = "1m"
 
 def symbol_to_pair(symbol: str) -> str:
