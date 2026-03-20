@@ -1,17 +1,20 @@
 #!/usr/bin/env python
 # -*- coding: utf-8 -*-
 
+from dotenv import load_dotenv
+import os
+
+load_dotenv()
+
+API_KEY = os.getenv("API_KEY")
+SECRET = os.getenv("SECRET")
+
 import requests
 import hashlib
 import hmac
 import time
 
-
-API_KEY = "Jk0d8PRjrHYsqoX2dJ9fdhmCdDVi1NQCBXtfghEHJgPklHl1V0hpNWmP5KsvBvI7"
-SECRET = "vwfhMLWsSrHjktYOMeberP2ThXUFpEllFJr0pXkV8IY3TPJgAXajH0am40PR2X5h"
-
 BASE_URL = "https://mock-api.roostoo.com"
-
 
 def generate_signature(params):
     query_string = '&'.join(["{}={}".format(k, params[k])
@@ -140,8 +143,8 @@ def pending_count():
 if __name__ == '__main__':
     # get_server_time()
     # get_ex_info()
-    # get_ticker()
-    get_balance()
+    get_ticker()
+    # get_balance()
     # place_order("BNB", "BUY", 200000)
     # cancel_order()
     # query_order()
