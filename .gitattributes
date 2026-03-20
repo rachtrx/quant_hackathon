@@ -1,5 +1,1 @@
-models/** merge=ours
-outputs/** merge=ours
-user_data/backtest_results/** merge=ours
-user_data/plot/** merge=ours
 features.py merge=ours
