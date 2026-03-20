@@ -20,7 +20,7 @@ sys.path.append(str(ROOT_DIR))
 from roostoo import python_demo
 from features import add_features
 from data_retrieval import fetch_recent_klines_rest
-from live_testing import tele_update
+from live_testing import tele_update, logging
 
 # =========================================================
 # GLOBAL CONFIG
@@ -122,17 +122,23 @@ class CoinTrader:
     # -----------------------------------------------------
     # Logging
     # -----------------------------------------------------
-    def log(self, msg: str, send_tele: bool = False, force_print: bool = False):
-        full = f"[{self.cfg.symbol}] {msg}"
+    def log(self, msg, level="info", send_tele=False):
+        line = f"[{self.cfg.symbol}] {msg}"
 
-        if force_print:
-            print(full)
+        if level == "info":
+            logging.info(line)
+        elif level == "warning":
+            logging.warning(line)
+        elif level == "error":
+            logging.error(line)
+        else:
+            logging.info(line)
 
         if send_tele:
             try:
-                tele_update.send(full)
-            except Exception:
-                pass
+                tele_update.send(line)
+            except Exception as e:
+                logging.error(f"[{self.cfg.symbol}] TELEGRAM FAILED: {e}")
 
     # -----------------------------------------------------
     # Setup / Persistence
