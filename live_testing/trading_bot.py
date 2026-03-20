@@ -20,7 +20,7 @@ sys.path.append(str(ROOT_DIR))
 from roostoo import python_demo
 from features import add_features
 from data_retrieval import fetch_recent_klines_rest
-from live_testing import tele_update, logging
+from live_testing import tele_update, logger
 
 # =========================================================
 # GLOBAL CONFIG
@@ -101,6 +101,7 @@ class PositionState:
 class CoinTrader:
     def __init__(self, cfg: PairConfig):
         self.cfg = cfg
+        self.logger = logger.setup_logger(name=f"bot_{cfg.symbol}")
 
         self.meta_path = os.path.join(MODEL_DIR, f"{cfg.symbol}__h5_meta.json")
         self.meta = self.load_meta()
@@ -126,19 +127,19 @@ class CoinTrader:
         line = f"[{self.cfg.symbol}] {msg}"
 
         if level == "info":
-            logging.info(line)
+            self.logger.info(line)
         elif level == "warning":
-            logging.warning(line)
+            self.logger.warning(line)
         elif level == "error":
-            logging.error(line)
+            self.logger.error(line)
         else:
-            logging.info(line)
+            self.logger.info(line)
 
         if send_tele:
             try:
                 tele_update.send(line)
             except Exception as e:
-                logging.error(f"[{self.cfg.symbol}] TELEGRAM FAILED: {e}")
+                self.logger.error(f"[{self.cfg.symbol}] TELEGRAM FAILED: {e}")
 
     # -----------------------------------------------------
     # Setup / Persistence
@@ -376,8 +377,7 @@ class CoinTrader:
         if not isinstance(buy_resp, dict) or not buy_resp.get("Success"):
             self.log(
                 f"BUY failed: {buy_resp}",
-                send_tele=True,
-                force_print=True,
+                send_tele=True
             )
             return None
 
@@ -401,7 +401,6 @@ class CoinTrader:
             self.log(
                 f"TP placement failed after BUY. buy_resp={buy_resp}, tp_resp={tp_resp}",
                 send_tele=True,
-                force_print=True,
             )
             return None
 
@@ -411,7 +410,6 @@ class CoinTrader:
             f"size_pct={size_pct * 100:.2f}% "
             f"dev={(current_price - current_mean) / current_std:.3f}",
             send_tele=True,
-            force_print=True,
         )
 
         return PositionState(
@@ -432,8 +430,7 @@ class CoinTrader:
             except Exception as e:
                 self.log(
                     f"Failed to cancel TP order {self.position.tp_order_id}: {e}",
-                    send_tele=True,
-                    force_print=True,
+                    send_tele=True
                 )
 
     def is_tp_filled(self) -> bool:
@@ -474,8 +471,7 @@ class CoinTrader:
                     f"exit≈{self.position.tp_price:.2f} "
                     f"pnl≈{approx_pnl:.2f} "
                     f"usd_balance={usd_balance:.2f}",
-                    send_tele=True,
-                    force_print=True,
+                    send_tele=True
                 )
                 return "tp"
 
@@ -502,8 +498,7 @@ class CoinTrader:
                 f"pnl≈{approx_pnl:.2f} "
                 f"usd_balance={usd_balance:.2f} "
                 f"resp={sell_resp}",
-                send_tele=True,
-                force_print=True,
+                send_tele=True
             )
             return "sl"
 
@@ -568,15 +563,14 @@ class CoinTrader:
     def run_forever(self):
         self.log(
             f"strategy started | loaded_rows={len(self.df)} | "
-            f"open_position={self.position is not None}",
-            force_print=True,
+            f"open_position={self.position is not None}"
         )
 
         while True:
             try:
                 self.step()
             except Exception as e:
-                self.log(f"ERROR: {e}", send_tele=True, force_print=True)
+                self.log(f"ERROR: {e}", send_tele=True)
             sleep_to_next_minute()
 
 def run_trader(cfg_dict):
