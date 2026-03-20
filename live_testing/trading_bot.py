@@ -3,14 +3,19 @@
 
 import json
 import os
+import sys
 import time
 import threading
+from pathlib import Path
 from dataclasses import dataclass, asdict
 from typing import Optional
 
 import joblib
 import numpy as np
 import pandas as pd
+
+ROOT_DIR = Path(__file__).resolve().parent.parent
+sys.path.append(str(ROOT_DIR))
 
 from roostoo import python_demo
 from features import add_features
@@ -44,15 +49,21 @@ BASE_SIZE_LARGE = 0.02
 
 MAX_BARS_1M = 2000
 MIN_BARS_1M = 1200
-SLEEP_SECONDS = 60
 
 BUY_FEE_RATE = 0.001
 MIN_ORDER_VALUE_USD = 1.0
 
 PAIR_CONFIGS = [
-    {"pair": "BTC/USD", "symbol": "BTCUSDT", "coin": "BTC"},
-    {"pair": "ETH/USD", "symbol": "ETHUSDT", "coin": "ETH"},
-    {"pair": "BNB/USD", "symbol": "BNBUSDT", "coin": "BNB"},
+    {"pair": "ADA/USD", "symbol": "ADAUSDT", "coin": "ADA"},
+    {"pair": "XRP/USD", "symbol": "XRPUSDT", "coin": "XRP"},
+    {"pair": "LINK/USD", "symbol": "LINKUSDT", "coin": "LINK"},
+    # {"pair": "DOT/USD", "symbol": "DOTUSDT", "coin": "DOT"},
+    # {"pair": "AVAX/USD", "symbol": "AVAXUSDT", "coin": "AVAX"},
+    # {"pair": "SOL/USD", "symbol": "SOLUSDT", "coin": "SOL"},
+    # {"pair": "LTC/USD", "symbol": "LTCUSDT", "coin": "LTC"},
+    # {"pair": "BNB/USD", "symbol": "BNBUSDT", "coin": "BNB"},
+    # {"pair": "ETH/USD", "symbol": "ETHUSDT", "coin": "ETH"},
+    # {"pair": "BTC/USD", "symbol": "BTCUSDT", "coin": "BTC"},
 ]
 
 order_lock = threading.Lock()
@@ -536,13 +547,17 @@ class CoinTrader:
                 self.step()
             except Exception as e:
                 self.log(f"ERROR: {e}", send_tele=True, force_print=True)
-            time.sleep(SLEEP_SECONDS)
-
+            sleep_to_next_minute()
 
 def run_trader(cfg_dict):
     trader = CoinTrader(PairConfig(**cfg_dict))
     trader.run_forever()
 
+def sleep_to_next_minute():
+    now = time.time()
+    next_minute = (int(now // 60) + 1) * 60
+    sleep_time = next_minute - now
+    time.sleep(sleep_time)
 
 def main():
     threads = []
