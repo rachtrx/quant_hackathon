@@ -38,8 +38,7 @@ venv.bak/
 
 # Data
 user_data/data
+user_data/backtest_results
+user_data/plot
 binance_data/
 *.log
-
-# indiv training / results
-/backtest_results
