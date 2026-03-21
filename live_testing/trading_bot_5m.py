@@ -15,6 +15,7 @@ from typing import Optional, Any
 import joblib
 import numpy as np
 import pandas as pd
+import talib.abstract as ta
 
 ROOT_DIR = Path(__file__).resolve().parent.parent
 sys.path.append(str(ROOT_DIR))
@@ -24,6 +25,7 @@ from features import add_features
 from data_retrieval import fetch_recent_klines_rest
 from live_testing import tele_update, logger
 from constants import TARGET_HORIZON, INTERVAL
+from controller import controller
 
 
 # =========================================================
@@ -35,39 +37,56 @@ MODEL_DIR = f"models/{MODEL_TYPE}"
 DATA_DIR = "live_testing/data"
 STATE_DIR = "live_testing/state"
 
-MIN_BAND_STD = 1e-8
+MAX_BARS = 2500
+MIN_BARS = 800
 
-# These mirror the STRATEGY DEFAULTS
-WINDOW_30M = 20
-ENTRY_DEV_Z = -2.27
-SL_DEV_DELTA = 1.81
-
-VOL_FILTER_THRESH = 0.96
-
-BASE_SIZE_PCT = 0.002
-MID_SIZE_PCT = 0.019
-
-ABS_MIN_PRED = 0.003
-PRED_ENTRY_QUANTILE = 0.45
-PRED_MID_DELTA = 0.09
-PRED_HIGH_DELTA = 0.04
-PRED_ROLLING_WINDOW = 656
-PRED_MIN_PERIODS_FRAC = 0.63
-
-MAX_BARS_5M = 2500
-MIN_BARS_5M = 1200
-
-BUY_FEE_RATE = 0.000 # TO CHECK
-
+BUY_FEE_RATE = 0.000  # TO CHECK
 MAX_OPEN_POSITIONS = 5
+
+####################
+# HYPEROPT PARAMS
+####################
+
+BUY_THRESHOLD = 0.011
+PRED_HIST_WINDOW = 26
+PRED_QUANTILE = 0.61
+
+BREAKOUT_LEVEL = 1.07
+STRONG_BREAKOUT_LEVEL = 1.18
+MILD_BREAKOUT_BOOST = 1.18
+STRONG_BREAKOUT_BOOST = 1.04
+
+IMBALANCE_SOFT = 0.03
+IMBALANCE_STRONG = 0.02
+IMBALANCE_NEGATIVE = -0.2
+CONFIRM_SOFT_BOOST = 1.2
+CONFIRM_STRONG_BOOST = 1.04
+NEGATIVE_CONFIRM_PENALTY = 0.86
+
+MEANREV_DIST_Z = -2.05
+CONFIRM_MIN_IMBALANCE = 0.01
+MEANREV_POSITION_SIZE = 0.92
+
+SELL_PRED_THRESHOLD = 0.00
+SELL_IMBALANCE_THRESHOLD = 0.00
+SELL_DIST_Z_THRESHOLD = 0.00
+
+TREND_RSI_MIN = 55.2
+TREND_RSI_MAX = 59.2
+MEANREV_RSI_MAX = 45.0
+
+MEANREV_RANGE_MAX = 0.26
+TREND_RANGE_MAX = 0.86
+BREAKOUT_RANGE_MAX = 0.79
+
+TREND_MACDHIST_MIN = 0.028
+BREAKOUT_MACDHIST_DELTA_MIN = -0.008
+
+ALLOW_MEANREV_EDGE_RELAX = 0.0
 
 PAIR_CONFIGS = [
     {"pair": "AVAX/USD", "symbol": "AVAXUSDT", "coin": "AVAX"},
-    {"pair": "DOT/USD", "symbol": "DOTUSDT", "coin": "DOT"},
-    {"pair": "XRP/USD", "symbol": "XRPUSDT", "coin": "XRP"},
     {"pair": "LINK/USD", "symbol": "LINKUSDT", "coin": "LINK"},
-    {"pair": "LTC/USD", "symbol": "LTCUSDT", "coin": "LTC"},
-    {"pair": "ADA/USD", "symbol": "ADAUSDT", "coin": "ADA"},
     {"pair": "SOL/USD", "symbol": "SOLUSDT", "coin": "SOL"},
 ]
 
@@ -89,10 +108,6 @@ class PositionState:
     qty: float
     entry_price: float
     entry_time: str
-    band_mean_30m: float
-    band_std_30m: float
-    tp_price: float
-    sl_price: float
     stake_pct: float
     pred: float
     pred_proba: float
@@ -184,7 +199,7 @@ class CoinTrader:
                 df = (
                     df.sort_values("open_time")
                     .drop_duplicates(subset=["open_time"])
-                    .tail(MAX_BARS_5M)
+                    .tail(MAX_BARS)
                     .reset_index(drop=True)
                 )
                 return df
@@ -234,7 +249,7 @@ class CoinTrader:
             recent = fetch_recent_klines_rest(
                 self.cfg.symbol,
                 INTERVAL,
-                limit=MAX_BARS_5M,
+                limit=MAX_BARS,
             )
             if not recent.empty:
                 self.df = recent.copy()
@@ -260,7 +275,7 @@ class CoinTrader:
             self.df = (
                 self.df.drop_duplicates(subset=["open_time"])
                 .sort_values("open_time")
-                .tail(MAX_BARS_5M)
+                .tail(MAX_BARS)
                 .reset_index(drop=True)
             )
 
@@ -269,7 +284,7 @@ class CoinTrader:
     # -----------------------------------------------------
     def _normalize_utc_ns(self, s: pd.Series) -> pd.Series:
         return pd.to_datetime(s, utc=True).astype("datetime64[ns, UTC]")
-    
+
     def build_signal_frame(self) -> pd.DataFrame:
         df = self.df.copy()
 
@@ -297,154 +312,92 @@ class CoinTrader:
 
         feat_valid["date"] = self._normalize_utc_ns(feat_valid["date"])
 
+        # ----------------------------
+        # Model predictions
+        # ----------------------------
         X = feat_valid[self.feature_cols]
         feat_valid["pred_proba"] = self.model.predict_proba(X)[:, 1]
         feat_valid["pred"] = feat_valid["pred_proba"] - 0.5
 
-        df_30 = (
-            df.set_index("date")
-            .resample("30min")
-            .agg(close_30m=("close", "last"))
-            .dropna()
-            .sort_index()
-            .reset_index()
-        )
-
-        if df_30.empty:
-            return pd.DataFrame()
-
-        df_30["date"] = self._normalize_utc_ns(df_30["date"])
-
-        df_30["band_mean_30m"] = df_30["close_30m"].rolling(WINDOW_30M).mean()
-        df_30["band_std_30m"] = df_30["close_30m"].rolling(WINDOW_30M).std()
-        df_30["vol_30_30m"] = df_30["close_30m"].pct_change().rolling(30).std()
-
-        df_30["band_std_30m"] = df_30["band_std_30m"].clip(lower=MIN_BAND_STD)
-        df_30["vol_30_30m"] = df_30["vol_30_30m"].clip(lower=MIN_BAND_STD)
-
-        df_30["date_available"] = self._normalize_utc_ns(
-            df_30["date"] + pd.Timedelta(minutes=30)
-        )
-
-        feat_valid = pd.merge_asof(
-            feat_valid.sort_values("date"),
-            df_30[
-                [
-                    "date_available",
-                    "band_mean_30m",
-                    "band_std_30m",
-                    "vol_30_30m",
-                ]
-            ].sort_values("date_available"),
-            left_on="date",
-            right_on="date_available",
-            direction="backward",
-        )
-
-        feat_valid["vol_5bar"] = feat_valid["close"].pct_change().rolling(5).std()
-
-        feat_valid["dev_z"] = (
-            (feat_valid["close"] - feat_valid["band_mean_30m"]) /
-            feat_valid["band_std_30m"]
-        )
-
-        feat_valid["vol_ratio_5_30"] = (
-            feat_valid["vol_5bar"] / feat_valid["vol_30_30m"]
-        )
-
-        sl_dev_z = ENTRY_DEV_Z - SL_DEV_DELTA
-
-        feat_valid["sl_price_30m"] = (
-            feat_valid["band_mean_30m"] + sl_dev_z * feat_valid["band_std_30m"]
-        )
-
-        feat_valid["pass_vol_filter"] = (
-            feat_valid["vol_ratio_5_30"] < VOL_FILTER_THRESH
-        )
-
-        pred_shifted = feat_valid["pred"].shift(1)
-
-        pred_mid_q = min(PRED_ENTRY_QUANTILE + PRED_MID_DELTA, 0.95)
-        pred_high_q = min(pred_mid_q + PRED_HIGH_DELTA, 0.99)
-
-        pred_min_periods = max(
-            1,
-            int(PRED_ROLLING_WINDOW * PRED_MIN_PERIODS_FRAC)
-        )
-        pred_min_periods = min(pred_min_periods, PRED_ROLLING_WINDOW)
-
+        # ----------------------------
+        # Rolling threshold
+        # Mirrors strategy:
+        # feat_valid["pred"].abs().shift(1).rolling(window).quantile(q)
+        # ----------------------------
         feat_valid["threshold"] = (
-            pred_shifted
-            .rolling(PRED_ROLLING_WINDOW, min_periods=pred_min_periods)
-            .quantile(PRED_ENTRY_QUANTILE)
+            feat_valid["pred"]
+            .abs()
+            .shift(1)
+            .rolling(PRED_HIST_WINDOW)
+            .quantile(PRED_QUANTILE)
         )
+        feat_valid["threshold"] = feat_valid["threshold"].fillna(BUY_THRESHOLD)
 
-        feat_valid["pred_mid_threshold"] = (
-            pred_shifted
-            .rolling(PRED_ROLLING_WINDOW, min_periods=pred_min_periods)
-            .quantile(pred_mid_q)
-        )
+        # ----------------------------
+        # Extra indicator fields used by controller
+        # ----------------------------
+        feat_valid["rsi"] = ta.RSI(feat_valid, timeperiod=14)
 
-        feat_valid["pred_high_threshold"] = (
-            pred_shifted
-            .rolling(PRED_ROLLING_WINDOW, min_periods=pred_min_periods)
-            .quantile(pred_high_q)
-        )
+        macd = ta.MACD(feat_valid)
+        feat_valid["macd"] = macd["macd"]
+        feat_valid["macdsignal"] = macd["macdsignal"]
+        feat_valid["macdhist"] = macd["macdhist"]
 
-        for c in ["threshold", "pred_mid_threshold", "pred_high_threshold"]:
-            feat_valid[c] = feat_valid[c].fillna(ABS_MIN_PRED)
-            feat_valid[c] = feat_valid[c].clip(lower=ABS_MIN_PRED)
+        feat_valid["rsi_slope"] = feat_valid["rsi"] - feat_valid["rsi"].shift(1)
+        feat_valid["macdhist_delta"] = feat_valid["macdhist"] - feat_valid["macdhist"].shift(1)
 
-        feat_valid["pred_mid_threshold"] = np.maximum(
-            feat_valid["pred_mid_threshold"],
-            feat_valid["threshold"],
-        )
-        feat_valid["pred_high_threshold"] = np.maximum(
-            feat_valid["pred_high_threshold"],
-            feat_valid["pred_mid_threshold"],
-        )
+        range_window = 20
+        roll_low = feat_valid["low"].rolling(range_window).min()
+        roll_high = feat_valid["high"].rolling(range_window).max()
+        range_span = (roll_high - roll_low).replace(0, np.nan)
+        feat_valid["range_pos_20"] = (feat_valid["close"] - roll_low) / range_span
 
-        feat_valid["pass_pred_filter"] = (
-            (feat_valid["pred"] >= feat_valid["threshold"]) &
-            (feat_valid["pred"] < feat_valid["pred_high_threshold"])
-        )
+        # ----------------------------
+        # Controller params
+        # ----------------------------
+        controller_params = {
+            "buy_threshold": BUY_THRESHOLD,
+            "breakout_level": BREAKOUT_LEVEL,
+            "strong_breakout_level": STRONG_BREAKOUT_LEVEL,
+            "mild_breakout_boost": MILD_BREAKOUT_BOOST,
+            "strong_breakout_boost": STRONG_BREAKOUT_BOOST,
+            "imbalance_soft": IMBALANCE_SOFT,
+            "imbalance_strong": IMBALANCE_STRONG,
+            "imbalance_negative": IMBALANCE_NEGATIVE,
+            "confirm_soft_boost": CONFIRM_SOFT_BOOST,
+            "confirm_strong_boost": CONFIRM_STRONG_BOOST,
+            "negative_confirm_penalty": NEGATIVE_CONFIRM_PENALTY,
+            "meanrev_dist_z": MEANREV_DIST_Z,
+            "confirm_min_imbalance": CONFIRM_MIN_IMBALANCE,
+            "meanrev_position_size": MEANREV_POSITION_SIZE,
+            "meanrev_range_max": MEANREV_RANGE_MAX,
+            "trend_range_max": TREND_RANGE_MAX,
+            "breakout_range_max": BREAKOUT_RANGE_MAX,
+            "meanrev_rsi_max": MEANREV_RSI_MAX,
+            "trend_rsi_min": TREND_RSI_MIN,
+            "trend_rsi_max": TREND_RSI_MAX,
+            "trend_macdhist_min": TREND_MACDHIST_MIN,
+            "breakout_macdhist_delta_min": BREAKOUT_MACDHIST_DELTA_MIN,
+            "allow_meanrev_edge_relax": ALLOW_MEANREV_EDGE_RELAX,
+        }
 
-        feat_valid["enter_logic"] = (
-            (feat_valid["dev_z"] <= ENTRY_DEV_Z) &
-            feat_valid["pass_vol_filter"] &
-            feat_valid["pass_pred_filter"]
-        )
+        def _apply_controller(row: pd.Series) -> pd.Series:
+            d = controller(
+                row=row,
+                pred=float(row["pred"]),
+                threshold=float(row["threshold"]),
+                params=controller_params,
+            )
+            return pd.Series(d)
 
-        feat_valid["stake_pct"] = 0.0
+        ctrl_cols = feat_valid.apply(_apply_controller, axis=1)
 
-        feat_valid.loc[
-            feat_valid["enter_logic"] &
-            (feat_valid["pred"] >= feat_valid["threshold"]) &
-            (feat_valid["pred"] < feat_valid["pred_mid_threshold"]),
-            "stake_pct"
-        ] = BASE_SIZE_PCT
+        for col in ctrl_cols.columns:
+            feat_valid[col] = ctrl_cols[col]
 
-        feat_valid.loc[
-            feat_valid["enter_logic"] &
-            (feat_valid["pred"] >= feat_valid["pred_mid_threshold"]) &
-            (feat_valid["pred"] < feat_valid["pred_high_threshold"]),
-            "stake_pct"
-        ] = MID_SIZE_PCT
-
-        feat_valid["enter_reason"] = np.select(
-            [
-                feat_valid["stake_pct"] == BASE_SIZE_PCT,
-                feat_valid["stake_pct"] == MID_SIZE_PCT,
-                (~feat_valid["pass_pred_filter"]) &
-                (feat_valid["pred"] >= feat_valid["pred_high_threshold"]),
-            ],
-            [
-                "meanrev_long_small",
-                "meanrev_long_mid",
-                "pred_too_high_skip",
-            ],
-            default="no_trade",
-        )
+        if feat_valid.columns.duplicated().any():
+            dupes = feat_valid.columns[feat_valid.columns.duplicated()].tolist()
+            raise ValueError(f"Duplicate columns in feat_valid: {dupes}")
 
         return feat_valid.sort_values("date").reset_index(drop=True)
 
@@ -455,32 +408,48 @@ class CoinTrader:
         latest = sig_df.iloc[-1].copy()
 
         required = [
+            "date",
             "close",
             "pred_proba",
             "pred",
             "threshold",
-            "pred_mid_threshold",
-            "pred_high_threshold",
-            "band_mean_30m",
-            "band_std_30m",
-            "sl_price_30m",
-            "dev_z",
-            "vol_5bar",
-            "vol_30_30m",
-            "vol_ratio_5_30",
-            "stake_pct",
-            "enter_logic",
-            "pass_vol_filter",
-            "pass_pred_filter",
-            "enter_reason",
+            "adjusted_pred",
+            "breakout_boost",
+            "confirm_boost",
+            "signal",
+            "position",
+            "reason",
+            "regime",
+            "long_signal_raw",
+            "long_signal",
+            "is_trending",
+            "is_breakout",
+            "long_confirm",
+            "meanrev_exit_warn",
+            "trend_exit_warn",
+            "imbalance_5",
+            "dist_ma_15_z",
         ]
 
         for c in required:
             if c not in latest.index:
                 return None
-            if c not in ["enter_logic", "pass_vol_filter", "pass_pred_filter", "enter_reason"]:
-                if pd.isna(latest[c]):
-                    return None
+
+        numeric_required = [
+            "close",
+            "pred_proba",
+            "pred",
+            "threshold",
+            "adjusted_pred",
+            "breakout_boost",
+            "confirm_boost",
+            "position",
+            "imbalance_5",
+            "dist_ma_15_z",
+        ]
+        for c in numeric_required:
+            if pd.isna(latest[c]):
+                return None
 
         return {
             "date": latest["date"],
@@ -488,20 +457,22 @@ class CoinTrader:
             "pred_proba": float(latest["pred_proba"]),
             "pred": float(latest["pred"]),
             "threshold": float(latest["threshold"]),
-            "pred_mid_threshold": float(latest["pred_mid_threshold"]),
-            "pred_high_threshold": float(latest["pred_high_threshold"]),
-            "band_mean_30m": float(latest["band_mean_30m"]),
-            "band_std_30m": float(latest["band_std_30m"]),
-            "sl_price_30m": float(latest["sl_price_30m"]),
-            "dev_z": float(latest["dev_z"]),
-            "vol_5bar": float(latest["vol_5bar"]),
-            "vol_30_30m": float(latest["vol_30_30m"]),
-            "vol_ratio_5_30": float(latest["vol_ratio_5_30"]),
-            "stake_pct": float(latest["stake_pct"]),
-            "enter_logic": bool(latest["enter_logic"]),
-            "pass_vol_filter": bool(latest["pass_vol_filter"]),
-            "pass_pred_filter": bool(latest["pass_pred_filter"]),
-            "enter_reason": str(latest["enter_reason"]),
+            "adjusted_pred": float(latest["adjusted_pred"]),
+            "breakout_boost": float(latest["breakout_boost"]),
+            "confirm_boost": float(latest["confirm_boost"]),
+            "signal": int(latest["signal"]),
+            "position": float(latest["position"]),
+            "reason": str(latest["reason"]),
+            "regime": str(latest["regime"]),
+            "long_signal_raw": bool(latest["long_signal_raw"]),
+            "long_signal": bool(latest["long_signal"]),
+            "is_trending": bool(latest["is_trending"]),
+            "is_breakout": bool(latest["is_breakout"]),
+            "long_confirm": bool(latest["long_confirm"]),
+            "meanrev_exit_warn": bool(latest["meanrev_exit_warn"]),
+            "trend_exit_warn": bool(latest["trend_exit_warn"]),
+            "imbalance_5": float(latest["imbalance_5"]),
+            "dist_ma_15_z": float(latest["dist_ma_15_z"]),
         }
 
     # -----------------------------------------------------
@@ -538,9 +509,6 @@ class CoinTrader:
         self,
         stake_pct: float,
         current_price: float,
-        band_mean_30m: float,
-        band_std_30m: float,
-        sl_price_30m: float,
         pred: float,
         pred_proba: float,
         entry_reason: str,
@@ -558,13 +526,9 @@ class CoinTrader:
             self.log(f"BUY failed: {buy_resp}", level="error", send_tele=True)
             return None
 
-        tp_price = band_mean_30m
-
         self.log(
             f"ENTRY BUY qty={qty:.8f} {self.cfg.coin} "
             f"entry={current_price:.6f} "
-            f"tp_mean={tp_price:.6f} "
-            f"sl_band={sl_price_30m:.6f} "
             f"stake_pct={stake_pct * 100:.2f}% "
             f"pred={pred:.6f} "
             f"pred_proba={pred_proba:.6f} "
@@ -576,10 +540,6 @@ class CoinTrader:
             qty=float(qty),
             entry_price=float(current_price),
             entry_time=pd.Timestamp.utcnow().isoformat(),
-            band_mean_30m=float(band_mean_30m),
-            band_std_30m=float(band_std_30m),
-            tp_price=float(tp_price),
-            sl_price=float(sl_price_30m),
             stake_pct=float(stake_pct),
             pred=float(pred),
             pred_proba=float(pred_proba),
@@ -601,7 +561,7 @@ class CoinTrader:
             self.log(f"SELL failed: {sell_resp}", level="error", send_tele=True)
         return ok
 
-    def check_position_exit(self) -> Optional[str]:
+    def check_position_exit(self, sig: dict[str, Any]) -> Optional[str]:
         if self.position is None:
             return None
 
@@ -609,49 +569,56 @@ class CoinTrader:
         if live_price <= 0:
             return None
 
-        # Mirrors custom_exit:
-        # TP if current_rate >= band_mean
-        if live_price >= self.position.tp_price:
-            ok = self.market_sell_position()
-            if ok:
-                approx_pnl = (
-                    (live_price - self.position.entry_price) * self.position.qty
-                )
-                usd_balance = self.get_usd_balance()
+        entry_reason = self.position.entry_reason
 
-                self.log(
-                    f"TP MEAN REVERT qty={self.position.qty:.8f} {self.cfg.coin} "
-                    f"entry={self.position.entry_price:.6f} "
-                    f"exit≈{live_price:.6f} "
-                    f"tp_mean={self.position.tp_price:.6f} "
-                    f"pnl≈{approx_pnl:.6f} "
-                    f"usd_balance={usd_balance:.2f}",
-                    send_tele=True,
-                )
-                return "tp_mean_revert"
+        pred_exit = sig["adjusted_pred"] < SELL_PRED_THRESHOLD
+        imbalance_exit = sig["imbalance_5"] < SELL_IMBALANCE_THRESHOLD
 
-        # Mirrors custom_exit:
-        # SL if current_rate <= sl_price
-        if live_price <= self.position.sl_price:
-            ok = self.market_sell_position()
-            if ok:
-                approx_pnl = (
-                    (live_price - self.position.entry_price) * self.position.qty
-                )
-                usd_balance = self.get_usd_balance()
+        meanrev_reversion_exit = (
+            (entry_reason == "meanrev_long")
+            and (
+                (sig["dist_ma_15_z"] > SELL_DIST_Z_THRESHOLD)
+                or sig["meanrev_exit_warn"]
+            )
+        )
 
-                self.log(
-                    f"SL BAND qty={self.position.qty:.8f} {self.cfg.coin} "
-                    f"entry={self.position.entry_price:.6f} "
-                    f"exit≈{live_price:.6f} "
-                    f"sl_band={self.position.sl_price:.6f} "
-                    f"pnl≈{approx_pnl:.6f} "
-                    f"usd_balance={usd_balance:.2f}",
-                    send_tele=True,
-                )
-                return "sl_band"
+        trend_momentum_exit = (
+            entry_reason in {"trend_long", "breakout_long"}
+            and sig["trend_exit_warn"]
+        )
 
-        return None
+        if not (pred_exit or imbalance_exit or meanrev_reversion_exit or trend_momentum_exit):
+            return None
+
+        ok = self.market_sell_position()
+        if not ok:
+            return None
+
+        approx_pnl = (live_price - self.position.entry_price) * self.position.qty
+        usd_balance = self.get_usd_balance()
+
+        if pred_exit:
+            exit_reason = "pred_exit"
+        elif imbalance_exit:
+            exit_reason = "imbalance_exit"
+        elif meanrev_reversion_exit:
+            exit_reason = "meanrev_revert_exit"
+        else:
+            exit_reason = "trend_momentum_exit"
+
+        self.log(
+            f"EXIT {exit_reason} qty={self.position.qty:.8f} {self.cfg.coin} "
+            f"entry={self.position.entry_price:.6f} "
+            f"exit≈{live_price:.6f} "
+            f"pnl≈{approx_pnl:.6f} "
+            f"adj_pred={sig['adjusted_pred']:.6f} "
+            f"imbalance_5={sig['imbalance_5']:.6f} "
+            f"dist_z={sig['dist_ma_15_z']:.6f} "
+            f"usd_balance={usd_balance:.2f}",
+            send_tele=True,
+        )
+
+        return exit_reason
 
     # -----------------------------------------------------
     # Main step
@@ -659,18 +626,11 @@ class CoinTrader:
     def step(self):
         self.refresh_data()
 
-        if self.df.empty or len(self.df) < MIN_BARS_5M:
+        if self.df.empty or len(self.df) < MIN_BARS:
             self.save_data()
             return
 
         self.save_data()
-
-        if self.position is not None:
-            exit_reason = self.check_position_exit()
-            if exit_reason is not None:
-                self.position = None
-                self.save_position_state()
-            return
 
         sig_df = self.build_signal_frame()
         sig = self.get_latest_signal_values(sig_df)
@@ -678,28 +638,33 @@ class CoinTrader:
         if sig is None:
             return
 
-        # Optional debug like strategy
-        too_high = sig["pred"] >= sig["pred_high_threshold"]
-        self.log(
-            "latest_signal "
-            f"dev_z={sig['dev_z']:.4f} "
-            f"vol_ratio={sig['vol_ratio_5_30']:.4f} "
-            f"pred={sig['pred']:.6f} "
-            f"thr={sig['threshold']:.6f} "
-            f"mid_thr={sig['pred_mid_threshold']:.6f} "
-            f"high_thr={sig['pred_high_threshold']:.6f} "
-            f"vol_pass={sig['pass_vol_filter']} "
-            f"pred_pass={sig['pass_pred_filter']} "
-            f"too_high={too_high} "
-            f"enter_logic={sig['enter_logic']} "
-            f"stake_pct={sig['stake_pct']:.4f} "
-            f"reason={sig['enter_reason']}"
-        )
-
-        if not sig["enter_logic"]:
+        # Exit first if already in position
+        if self.position is not None:
+            exit_reason = self.check_position_exit(sig)
+            if exit_reason is not None:
+                self.position = None
+                self.save_position_state()
             return
 
-        if sig["stake_pct"] <= 0:
+        self.log(
+            "latest_signal "
+            f"pred={sig['pred']:.6f} "
+            f"thr={sig['threshold']:.6f} "
+            f"adj_pred={sig['adjusted_pred']:.6f} "
+            f"signal={sig['signal']} "
+            f"position={sig['position']:.4f} "
+            f"reason={sig['reason']} "
+            f"regime={sig['regime']} "
+            f"confirm={sig['long_confirm']} "
+            f"is_breakout={sig['is_breakout']} "
+            f"meanrev_warn={sig['meanrev_exit_warn']} "
+            f"trend_warn={sig['trend_exit_warn']}"
+        )
+
+        if sig["signal"] != 1:
+            return
+
+        if sig["position"] <= 0:
             return
 
         with order_lock:
@@ -707,14 +672,11 @@ class CoinTrader:
                 return
 
             new_position = self.place_buy(
-                stake_pct=sig["stake_pct"],
+                stake_pct=sig["position"],
                 current_price=sig["current_price"],
-                band_mean_30m=sig["band_mean_30m"],
-                band_std_30m=sig["band_std_30m"],
-                sl_price_30m=sig["sl_price_30m"],
                 pred=sig["pred"],
                 pred_proba=sig["pred_proba"],
-                entry_reason=sig["enter_reason"],
+                entry_reason=sig["reason"],
             )
 
             if new_position is not None:
@@ -733,6 +695,7 @@ class CoinTrader:
             except Exception as e:
                 self.log(f"ERROR: {e}", level="error", send_tele=True)
             sleep_to_next_candle(5)
+
 
 # =========================================================
 # RUNNERS
