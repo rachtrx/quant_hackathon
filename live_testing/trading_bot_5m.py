@@ -532,33 +532,29 @@ class CoinTrader:
         remaining_slots = self.get_remaining_slots()
         slot_usd = usd_balance / remaining_slots
         alloc_usd = slot_usd * stake_pct
-        qty = (alloc_usd * (1 - BUY_FEE_RATE)) / current_price
+
+        step_size_map = {
+            "SOL": 0.01,
+            "LINK": 0.01,
+            "AVAX": 0.01,
+        }
+
+        qty_raw = (alloc_usd * (1 - BUY_FEE_RATE)) / current_price
+        qty = round_to_step(qty_raw, step_size_map[self.cfg.coin])
+
+        if qty <= 0:
+            self.log(f"Rounded qty became zero. raw_qty={qty_raw}", level="warning")
+            return None
 
         buy_resp = python_demo.place_order(self.cfg.coin, "BUY", qty)
 
         if not isinstance(buy_resp, dict) or not buy_resp.get("Success"):
-            self.log(f"BUY failed: {buy_resp}", level="error", send_tele=True)
+            self.log(
+                f"BUY failed: {buy_resp} | raw_qty={qty_raw} | rounded_qty={qty}",
+                level="error",
+                send_tele=True,
+            )
             return None
-
-        self.log(
-            f"ENTRY BUY qty={qty:.8f} {self.cfg.coin} "
-            f"entry={current_price:.6f} "
-            f"stake_pct={stake_pct * 100:.2f}% "
-            f"pred={pred:.6f} "
-            f"pred_proba={pred_proba:.6f} "
-            f"reason={entry_reason}",
-            send_tele=True,
-        )
-
-        return PositionState(
-            qty=float(qty),
-            entry_price=float(current_price),
-            entry_time=pd.Timestamp.utcnow().isoformat(),
-            stake_pct=float(stake_pct),
-            pred=float(pred),
-            pred_proba=float(pred_proba),
-            entry_reason=str(entry_reason),
-        )
 
     def market_sell_position(self) -> bool:
         if self.position is None:
