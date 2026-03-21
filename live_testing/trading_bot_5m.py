@@ -41,7 +41,7 @@ MAX_BARS = 2500
 MIN_BARS = 800
 
 BUY_FEE_RATE = 0.000  # TO CHECK
-MAX_OPEN_POSITIONS = 5
+MAX_OPEN_POSITIONS = len(PAIR_CONFIGS)
 
 ####################
 # HYPEROPT PARAMS
@@ -429,6 +429,9 @@ class CoinTrader:
             "trend_exit_warn",
             "imbalance_5",
             "dist_ma_15_z",
+            "meanrev_confluence",
+            "trend_confluence",
+            "breakout_confluence",
         ]
 
         for c in required:
@@ -473,6 +476,9 @@ class CoinTrader:
             "trend_exit_warn": bool(latest["trend_exit_warn"]),
             "imbalance_5": float(latest["imbalance_5"]),
             "dist_ma_15_z": float(latest["dist_ma_15_z"]),
+            "meanrev_confluence": bool(latest["meanrev_confluence"]),
+            "trend_confluence": bool(latest["trend_confluence"]),
+            "breakout_confluence": bool(latest["breakout_confluence"]),
         }
 
     # -----------------------------------------------------
@@ -505,6 +511,11 @@ class CoinTrader:
     # -----------------------------------------------------
     # Orders
     # -----------------------------------------------------
+    def get_remaining_slots(self) -> int:
+        open_positions = self.count_open_positions()
+        remaining = len(PAIR_CONFIGS) - open_positions
+        return max(1, remaining)
+    
     def place_buy(
         self,
         stake_pct: float,
@@ -518,7 +529,10 @@ class CoinTrader:
             self.log("No USD balance available.", level="warning")
             return None
 
-        qty = (usd_balance * stake_pct * (1 - BUY_FEE_RATE)) / current_price
+        remaining_slots = self.get_remaining_slots()
+        slot_usd = usd_balance / remaining_slots
+        alloc_usd = slot_usd * stake_pct
+        qty = (alloc_usd * (1 - BUY_FEE_RATE)) / current_price
 
         buy_resp = python_demo.place_order(self.cfg.coin, "BUY", qty)
 
@@ -657,6 +671,9 @@ class CoinTrader:
             f"regime={sig['regime']} "
             f"confirm={sig['long_confirm']} "
             f"is_breakout={sig['is_breakout']} "
+            f"mr_conf={sig['meanrev_confluence']} "
+            f"trend_conf={sig['trend_confluence']} "
+            f"bo_conf={sig['breakout_confluence']} "
             f"meanrev_warn={sig['meanrev_exit_warn']} "
             f"trend_warn={sig['trend_exit_warn']}"
         )
