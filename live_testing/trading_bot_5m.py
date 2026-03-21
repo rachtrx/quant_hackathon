@@ -520,7 +520,7 @@ class CoinTrader:
 
         qty = (usd_balance * stake_pct * (1 - BUY_FEE_RATE)) / current_price
 
-        buy_resp = python_demo.place_order(self.cfg.pair, "BUY", qty)
+        buy_resp = python_demo.place_order(self.cfg.coin, "BUY", qty)
 
         if not isinstance(buy_resp, dict) or not buy_resp.get("Success"):
             self.log(f"BUY failed: {buy_resp}", level="error", send_tele=True)
@@ -551,7 +551,7 @@ class CoinTrader:
             return False
 
         sell_resp = python_demo.place_order(
-            self.cfg.pair,
+            self.cfg.coin,
             "SELL",
             self.position.qty,
         )
