@@ -15,22 +15,22 @@
       "max_open_trades": 3
     },
     "buy": {
-      "ABS_MIN_PRED": 0.003,
+      "ABS_MIN_PRED": 0.018,
       "BASE_SIZE_PCT": 0.002,
-      "ENTRY_DEV_Z": -2.27,
-      "MID_SIZE_PCT": 0.019,
-      "PRED_ENTRY_QUANTILE": 0.45,
-      "PRED_HIGH_DELTA": 0.04,
-      "PRED_MID_DELTA": 0.09,
-      "PRED_MIN_PERIODS_FRAC": 0.63,
-      "PRED_ROLLING_WINDOW": 656,
-      "VOL_FILTER_THRESH": 0.96,
-      "WINDOW_30M": 20
+      "ENTRY_DEV_Z": -1.98,
+      "MID_SIZE_PCT": 0.012,
+      "PRED_ENTRY_QUANTILE": 0.5,
+      "PRED_HIGH_DELTA": 0.14,
+      "PRED_MID_DELTA": 0.05,
+      "PRED_MIN_PERIODS_FRAC": 0.51,
+      "PRED_ROLLING_WINDOW": 2,
+      "VOL_FILTER_THRESH": 1.04,
+      "WINDOW_30M": 21
     },
     "sell": {
-      "SL_DEV_DELTA": 1.81
+      "SL_DEV_DELTA": 1.9
     }
   },
   "ft_stratparam_v": 1,
-  "export_time": "2026-03-20 11:26:40.770627+00:00"
+  "export_time": "2026-03-21 07:46:22.161371+00:00"
 }

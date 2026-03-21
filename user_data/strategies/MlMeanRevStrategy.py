@@ -70,8 +70,28 @@ class MlMeanRevStrategy(IStrategy):
     PRED_ENTRY_QUANTILE = DecimalParameter(0.45, 0.65, decimals=2, default=0.51, space="buy")
     PRED_MID_DELTA = DecimalParameter(0.01, 0.15, decimals=2, default=0.04, space="buy")
     PRED_HIGH_DELTA = DecimalParameter(0.01, 0.20, decimals=2, default=0.05, space="buy")
-    PRED_ROLLING_WINDOW = IntParameter(100, 1000, default=500, space="buy")
+    PRED_ROLLING_WINDOW = IntParameter(1, 10, default=5, space="buy")
     PRED_MIN_PERIODS_FRAC = DecimalParameter(0.2, 1.0, decimals=2, default=0.50, space="buy")
+
+    @property
+    def plot_config(self):
+        return {
+            # Main plot indicators (Moving averages, ...)
+            "main_plot": {
+                "tema": {},
+                "sar": {"color": "white"},
+            },
+            "subplots": {
+                # Subplots - each dict defines one additional plot
+                "MACD": {
+                    "macd": {"color": "blue"},
+                    "macdsignal": {"color": "orange"},
+                },
+                "RSI": {
+                    "rsi": {"color": "red"},
+                }
+            }
+        }
 
     def bot_start(self, **kwargs) -> None:
         self._model_cache: dict[str, Any] = {}
@@ -262,7 +282,7 @@ class MlMeanRevStrategy(IStrategy):
             "band_std_30m",
             "sl_price_30m",
             "dev_z",
-            "vol_5_1m",
+            "vol_5bar",
             "vol_30_30m",
             "vol_ratio_5_30",
             "stake_pct",
@@ -348,7 +368,7 @@ class MlMeanRevStrategy(IStrategy):
         # --------------------------------------------------
         # Short-term vol and band metrics
         # --------------------------------------------------
-        feat_valid["vol_5_1m"] = feat_valid["close"].pct_change().rolling(5).std()
+        feat_valid["vol_5bar"] = feat_valid["close"].pct_change().rolling(5).std()
 
         feat_valid["dev_z"] = (
             (feat_valid["close"] - feat_valid["band_mean_30m"]) /
@@ -356,7 +376,7 @@ class MlMeanRevStrategy(IStrategy):
         )
 
         feat_valid["vol_ratio_5_30"] = (
-            feat_valid["vol_5_1m"] / feat_valid["vol_30_30m"]
+            feat_valid["vol_5bar"] / feat_valid["vol_30_30m"]
         )
 
         feat_valid["sl_price_30m"] = (
@@ -492,7 +512,7 @@ class MlMeanRevStrategy(IStrategy):
             "band_std_30m",
             "sl_price_30m",
             "dev_z",
-            "vol_5_1m",
+            "vol_5bar",
             "vol_30_30m",
             "vol_ratio_5_30",
             "stake_pct",
@@ -518,7 +538,7 @@ class MlMeanRevStrategy(IStrategy):
             "band_std_30m",
             "sl_price_30m",
             "dev_z",
-            "vol_5_1m",
+            "vol_5bar",
             "vol_30_30m",
             "vol_ratio_5_30",
             "stake_pct",
@@ -575,38 +595,6 @@ class MlMeanRevStrategy(IStrategy):
         ] = (1, "outside_test_window")
 
         return df
-
-    # --------------------------------------------------
-    # Dynamic stake sizing
-    # --------------------------------------------------
-    def custom_stake_amount(
-        self,
-        pair: str,
-        current_time: datetime,
-        current_rate: float,
-        proposed_stake: float,
-        min_stake: float | None,
-        max_stake: float,
-        leverage: float,
-        entry_tag: str | None,
-        side: str,
-        **kwargs,
-    ) -> float:
-        row = self._get_last_row_before_time(pair, current_time)
-        if row is None:
-            return proposed_stake
-
-        stake_pct = float(row.get("stake_pct", 0.0) or 0.0)
-        if stake_pct <= 0:
-            return 0.0
-
-        stake = max_stake * stake_pct
-
-        if min_stake is not None:
-            stake = max(stake, min_stake)
-
-        stake = min(stake, max_stake)
-        return float(stake)
 
     # --------------------------------------------------
     # TP / SL from 30m bands

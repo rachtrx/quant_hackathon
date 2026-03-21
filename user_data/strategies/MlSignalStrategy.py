@@ -5,6 +5,7 @@ from datetime import timedelta
 import json
 from pathlib import Path
 from typing import Any
+import talib.abstract as ta
 
 import joblib
 import numpy as np
@@ -30,10 +31,8 @@ class MlSignalStrategy(IStrategy):
     can_short = False
     timeframe = INTERVAL
 
-    minimal_roi = {
-        "0": 100
-    }
-    stoploss = -0.10
+    minimal_roi = { }
+    stoploss = -0.99
     trailing_stop = False
 
     process_only_new_candles = True
@@ -45,206 +44,40 @@ class MlSignalStrategy(IStrategy):
 
     MODEL_TYPE = "xgb"
     TARGET_HORIZON = TARGET_HORIZON
-    MIN_PRED_HISTORY = 100
-    DEFAULT_THRESHOLD = 0.03
-    PRED_HIST_WINDOW = 500
 
     USE_TIME_EXIT = False
 
-    #
-    # Hyperoptable BUY/controller parameters
-    #
-    buy_threshold = DecimalParameter(
-        0.005, 0.080,
-        default=0.030,
-        decimals=3,
-        space="buy",
-        optimize=True,
-        load=True,
-    )
+    buy_threshold = DecimalParameter(0.005, 0.080, default=0.030, decimals=3, space="buy", optimize=True, load=True)
+    pred_hist_window = IntParameter(5, 100, default=10, space="buy", optimize=True, load=True)
+    pred_quantile = DecimalParameter(0.60, 0.95, default=0.80, decimals=2, space="buy", optimize=True, load=True)
+    breakout_level = DecimalParameter(1.00, 1.30, default=1.10, decimals=2, space="buy", optimize=True, load=True)
+    strong_breakout_level = DecimalParameter(1.05, 1.60, default=1.20, decimals=2, space="buy", optimize=True, load=True)
+    mild_breakout_boost = DecimalParameter(1.00, 1.20, default=1.08, decimals=2, space="buy", optimize=True, load=True)
+    strong_breakout_boost = DecimalParameter(1.00, 1.30, default=1.15, decimals=2, space="buy", optimize=True, load=True)
+    imbalance_soft = DecimalParameter(0.00, 0.15, default=0.05, decimals=2, space="buy", optimize=True, load=True)
+    imbalance_strong = DecimalParameter(0.00, 0.25, default=0.10, decimals=2, space="buy", optimize=True, load=True)
+    imbalance_negative = DecimalParameter(-0.20, 0.00, default=-0.05, decimals=2, space="buy", optimize=True, load=True)
+    confirm_soft_boost = DecimalParameter(1.00, 1.20, default=1.08, decimals=2, space="buy", optimize=True, load=True)
+    confirm_strong_boost = DecimalParameter(1.00, 1.30, default=1.15, decimals=2, space="buy", optimize=True, load=True)
+    negative_confirm_penalty = DecimalParameter(0.70, 1.00, default=0.85, decimals=2, space="buy", optimize=True, load=True)
+    meanrev_dist_z = DecimalParameter(-3.00, -0.50, default=-1.00, decimals=2, space="buy", optimize=True, load=True)
+    confirm_min_imbalance = DecimalParameter(-0.05, 0.10, default=0.00, decimals=2, space="buy", optimize=True, load=True)
+    meanrev_position_size = DecimalParameter(0.25, 1.00, default=0.50, decimals=2, space="buy", optimize=True, load=True)
+    sell_pred_threshold = DecimalParameter(-0.10, 0.05, default=0.00, decimals=3, space="sell", optimize=True, load=True)
+    sell_imbalance_threshold = DecimalParameter(-0.20, 0.10, default=0.00, decimals=2, space="sell", optimize=True, load=True)
+    sell_dist_z_threshold = DecimalParameter(-0.50, 1.50, default=0.00, decimals=2, space="sell", optimize=True, load=True)
 
-    pred_hist_window = IntParameter(
-        50, 1000,
-        default=500,
-        space="buy",
-        optimize=True,
-        load=True,
-    )
+    trend_rsi_min = DecimalParameter(45.0, 60.0, default=50.0, decimals=1, space="buy")
+    trend_rsi_max = DecimalParameter(55.0, 75.0, default=68.0, decimals=1, space="buy")
 
-    min_pred_history_delta = IntParameter(
-        0, 200,
-        default=50,
-        space="buy",
-        optimize=True,
-        load=True,
-    )
+    meanrev_rsi_max = DecimalParameter(30.0, 45.0, default=40.0, decimals=1, space="buy")
 
-    pred_quantile = DecimalParameter(
-        0.60, 0.95,
-        default=0.80,
-        decimals=2,
-        space="buy",
-        optimize=True,
-        load=True,
-    )
+    meanrev_range_max = DecimalParameter(0.15, 0.50, default=0.35, decimals=2, space="buy")
+    trend_range_max = DecimalParameter(0.55, 0.95, default=0.80, decimals=2, space="buy")
+    breakout_range_max = DecimalParameter(0.70, 0.99, default=0.90, decimals=2, space="buy")
 
-    breakout_level = DecimalParameter(
-        1.00, 1.30,
-        default=1.10,
-        decimals=2,
-        space="buy",
-        optimize=True,
-        load=True,
-    )
-
-    strong_breakout_level = DecimalParameter(
-        1.05, 1.60,
-        default=1.20,
-        decimals=2,
-        space="buy",
-        optimize=True,
-        load=True,
-    )
-
-    mild_breakout_boost = DecimalParameter(
-        1.00, 1.20,
-        default=1.08,
-        decimals=2,
-        space="buy",
-        optimize=True,
-        load=True,
-    )
-
-    strong_breakout_boost = DecimalParameter(
-        1.00, 1.30,
-        default=1.15,
-        decimals=2,
-        space="buy",
-        optimize=True,
-        load=True,
-    )
-
-    imbalance_soft = DecimalParameter(
-        0.00, 0.15,
-        default=0.05,
-        decimals=2,
-        space="buy",
-        optimize=True,
-        load=True,
-    )
-
-    imbalance_strong = DecimalParameter(
-        0.00, 0.25,
-        default=0.10,
-        decimals=2,
-        space="buy",
-        optimize=True,
-        load=True,
-    )
-
-    imbalance_negative = DecimalParameter(
-        -0.20, 0.00,
-        default=-0.05,
-        decimals=2,
-        space="buy",
-        optimize=True,
-        load=True,
-    )
-
-    confirm_soft_boost = DecimalParameter(
-        1.00, 1.20,
-        default=1.08,
-        decimals=2,
-        space="buy",
-        optimize=True,
-        load=True,
-    )
-
-    confirm_strong_boost = DecimalParameter(
-        1.00, 1.30,
-        default=1.15,
-        decimals=2,
-        space="buy",
-        optimize=True,
-        load=True,
-    )
-
-    negative_confirm_penalty = DecimalParameter(
-        0.70, 1.00,
-        default=0.85,
-        decimals=2,
-        space="buy",
-        optimize=True,
-        load=True,
-    )
-
-    meanrev_dist_z = DecimalParameter(
-        -3.00, -0.50,
-        default=-1.00,
-        decimals=2,
-        space="buy",
-        optimize=True,
-        load=True,
-    )
-
-    confirm_min_imbalance = DecimalParameter(
-        -0.05, 0.10,
-        default=0.00,
-        decimals=2,
-        space="buy",
-        optimize=True,
-        load=True,
-    )
-
-    meanrev_position_size = DecimalParameter(
-        0.25, 1.00,
-        default=0.50,
-        decimals=2,
-        space="buy",
-        optimize=True,
-        load=True,
-    )
-
-    sell_pred_threshold = DecimalParameter(
-        -0.10, 0.05,
-        default=0.00,
-        decimals=3,
-        space="sell",
-        optimize=True,
-        load=True,
-    )
-
-    sell_imbalance_threshold = DecimalParameter(
-        -0.20, 0.10,
-        default=0.00,
-        decimals=2,
-        space="sell",
-        optimize=True,
-        load=True,
-    )
-
-    sell_dist_z_threshold = DecimalParameter(
-        -0.50, 1.50,
-        default=0.00,
-        decimals=2,
-        space="sell",
-        optimize=True,
-        load=True,
-    )
-
-    sell_on_long_signal_loss = BooleanParameter(
-        default=False,
-        space="sell",
-        optimize=True,
-        load=True,
-    )
-
-    sell_on_position_flip = BooleanParameter(
-        default=False,
-        space="sell",
-        optimize=True,
-        load=True,
-    )
+    trend_macdhist_min = DecimalParameter(-0.01, 0.05, default=0.00, decimals=3, space="buy")
+    breakout_macdhist_delta_min = DecimalParameter(-0.01, 0.05, default=0.00, decimals=3, space="buy")
 
     def bot_start(self, **kwargs) -> None:
         self._model_cache: dict[str, Any] = {}
@@ -356,24 +189,6 @@ class MlSignalStrategy(IStrategy):
         self._raw_cache[symbol] = raw_df
         return raw_df
 
-    def _get_controller_params(self) -> dict[str, float]:
-        return {
-            "buy_threshold": float(self.buy_threshold.value),
-            "breakout_level": float(self.breakout_level.value),
-            "strong_breakout_level": float(self.strong_breakout_level.value),
-            "mild_breakout_boost": float(self.mild_breakout_boost.value),
-            "strong_breakout_boost": float(self.strong_breakout_boost.value),
-            "imbalance_soft": float(self.imbalance_soft.value),
-            "imbalance_strong": float(self.imbalance_strong.value),
-            "imbalance_negative": float(self.imbalance_negative.value),
-            "confirm_soft_boost": float(self.confirm_soft_boost.value),
-            "confirm_strong_boost": float(self.confirm_strong_boost.value),
-            "negative_confirm_penalty": float(self.negative_confirm_penalty.value),
-            "meanrev_dist_z": float(self.meanrev_dist_z.value),
-            "confirm_min_imbalance": float(self.confirm_min_imbalance.value),
-            "meanrev_position_size": float(self.meanrev_position_size.value),
-        }
-
     def populate_indicators(self, dataframe: DataFrame, metadata: dict) -> DataFrame:
         pair = metadata["pair"]
         model, feature_cols, meta = self._load_pair_artifacts(pair)
@@ -419,16 +234,20 @@ class MlSignalStrategy(IStrategy):
             "is_trending",
             "is_breakout",
             "long_confirm",
+            "meanrev_exit_warn",
+            "trend_exit_warn",
         ]
+
         empty_defaults_num = [
             "pred",
             "pred_proba",
             "threshold",
+
+            "signal",
+            "position",
             "adjusted_pred",
             "breakout_boost",
             "confirm_boost",
-            "signal",
-            "position",
         ]
 
         if feat_df.empty:
@@ -468,8 +287,6 @@ class MlSignalStrategy(IStrategy):
         feat_valid["pred"] = feat_valid["pred_proba"] - 0.5
 
         rolling_window = int(self.pred_hist_window.value)
-        delta = int(self.min_pred_history_delta.value)
-        min_periods = max(1, min(rolling_window, rolling_window - delta))
         q = float(self.pred_quantile.value)
         fallback_threshold = float(self.buy_threshold.value)
 
@@ -477,12 +294,56 @@ class MlSignalStrategy(IStrategy):
             feat_valid["pred"]
             .abs()
             .shift(1)
-            .rolling(rolling_window, min_periods=min_periods)
+            .rolling(rolling_window)
             .quantile(q)
         )
         feat_valid["threshold"] = feat_valid["threshold"].fillna(fallback_threshold)
 
-        controller_params = self._get_controller_params()
+        feat_valid["rsi"] = ta.RSI(feat_valid, timeperiod=14)
+
+        macd = ta.MACD(feat_valid)
+        feat_valid["macd"] = macd["macd"]
+        feat_valid["macdsignal"] = macd["macdsignal"]
+        feat_valid["macdhist"] = macd["macdhist"]
+
+        feat_valid["rsi_slope"] = feat_valid["rsi"] - feat_valid["rsi"].shift(1)
+        feat_valid["macdhist_delta"] = feat_valid["macdhist"] - feat_valid["macdhist"].shift(1)
+
+        range_window = 20
+        roll_low = feat_valid["low"].rolling(range_window).min()
+        roll_high = feat_valid["high"].rolling(range_window).max()
+        range_span = (roll_high - roll_low).replace(0, np.nan)
+        feat_valid["range_pos_20"] = (feat_valid["close"] - roll_low) / range_span
+
+        controller_params = {
+            "buy_threshold": float(self.buy_threshold.value),
+            "breakout_level": float(self.breakout_level.value),
+            "strong_breakout_level": float(self.strong_breakout_level.value),
+            "mild_breakout_boost": float(self.mild_breakout_boost.value),
+            "strong_breakout_boost": float(self.strong_breakout_boost.value),
+            "imbalance_soft": float(self.imbalance_soft.value),
+            "imbalance_strong": float(self.imbalance_strong.value),
+            "imbalance_negative": float(self.imbalance_negative.value),
+            "confirm_soft_boost": float(self.confirm_soft_boost.value),
+            "confirm_strong_boost": float(self.confirm_strong_boost.value),
+            "negative_confirm_penalty": float(self.negative_confirm_penalty.value),
+            "meanrev_dist_z": float(self.meanrev_dist_z.value),
+            "confirm_min_imbalance": float(self.confirm_min_imbalance.value),
+            "meanrev_position_size": float(self.meanrev_position_size.value),
+
+            # confluence / anti-peak params
+            "meanrev_range_max": float(self.meanrev_range_max.value),
+            "trend_range_max": float(self.trend_range_max.value),
+            "breakout_range_max": float(self.breakout_range_max.value),
+            "meanrev_rsi_max": float(self.meanrev_rsi_max.value),
+            "trend_rsi_min": float(self.trend_rsi_min.value),
+            "trend_rsi_max": float(self.trend_rsi_max.value),
+            "trend_macdhist_min": float(self.trend_macdhist_min.value),
+            "breakout_macdhist_delta_min": float(self.breakout_macdhist_delta_min.value),
+
+            # keep 0.0 initially unless you explicitly want looser meanrev entries
+            "allow_meanrev_edge_relax": 0.0,
+        }
 
         def _apply_controller(row: pd.Series) -> pd.Series:
             d = controller(
@@ -491,55 +352,20 @@ class MlSignalStrategy(IStrategy):
                 threshold=float(row["threshold"]),
                 params=controller_params,
             )
-            return pd.Series({
-                "signal": d.get("signal", 0),
-                "position": d.get("position", 0.0),
-                "reason": d.get("reason", ""),
-                "long_signal_raw": d.get("long_signal_raw", False),
-                "long_signal": d.get("long_signal", False),
-                "is_trending": d.get("is_trending", False),
-                "is_breakout": d.get("is_breakout", False),
-                "long_confirm": d.get("long_confirm", False),
-                "adjusted_pred": d.get("adjusted_pred", np.nan),
-                "breakout_boost": d.get("breakout_boost", np.nan),
-                "confirm_boost": d.get("confirm_boost", np.nan),
-            })
+            return pd.Series(d)
 
         ctrl_cols = feat_valid.apply(_apply_controller, axis=1)
 
         for col in ctrl_cols.columns:
             feat_valid[col] = ctrl_cols[col]
 
-        extra_cols = [
-            "pred_proba",
-            "pred",
-            "threshold",
-            "adjusted_pred",
-            "breakout_boost",
-            "confirm_boost",
-            "signal",
-            "position",
-            "reason",
-            "long_signal_raw",
-            "long_signal",
-            "is_trending",
-            "is_breakout",
-            "long_confirm",
-            "imbalance_5",
-            "dist_ma_15_z",
-        ]
-
-        # Use date mapping instead of merge to avoid duplicate-column issues.
-        feat_trim = (
-            feat_valid.loc[:, ["date"] + extra_cols]
-            .drop_duplicates(subset=["date"], keep="last")
-            .set_index("date")
-        )
-
         # hard guard against duplicate columns
-        if feat_trim.columns.duplicated().any():
-            dupes = feat_trim.columns[feat_trim.columns.duplicated()].tolist()
-            raise ValueError(f"Duplicate columns in feat_trim: {dupes}")
+        if feat_valid.columns.duplicated().any():
+            dupes = feat_valid.columns[feat_valid.columns.duplicated()].tolist()
+            raise ValueError(f"Duplicate columns in feat_valid: {dupes}")
+        
+        feat_valid = feat_valid.copy()
+        feat_valid = feat_valid.set_index("date", drop=False)
 
         num_map_cols = [
             "pred_proba",
@@ -548,21 +374,39 @@ class MlSignalStrategy(IStrategy):
             "adjusted_pred",
             "breakout_boost",
             "confirm_boost",
+
             "imbalance_5",
             "dist_ma_15_z",
+            "rsi",
+            "macd",
+            "macdsignal",
+            "macdhist",
+            "rsi_slope",
+            "macdhist_delta",
+            "range_pos_20",
         ]
 
         for c in num_map_cols:
-            out[c] = out["date"].map(feat_trim[c])
+            out[c] = out["date"].map(feat_valid[c])
 
-        out["signal"] = out["date"].map(feat_trim["signal"]).fillna(0).astype(int)
-        out["position"] = out["date"].map(feat_trim["position"]).fillna(0.0).astype(float)
+        out["signal"] = out["date"].map(feat_valid["signal"]).fillna(0).astype(int)
+        out["position"] = out["date"].map(feat_valid["position"]).fillna(0.0).astype(float)
 
-        for c in ["long_signal_raw", "long_signal", "is_trending", "is_breakout", "long_confirm"]:
-            out[c] = out["date"].map(feat_trim[c]).astype("boolean").fillna(False).astype(bool)
+        for c in [
+            "long_signal_raw",
+            "long_signal",
+            "is_trending",
+            "is_breakout",
+            "long_confirm",
+            "meanrev_exit_warn",
+            "trend_exit_warn",
+        ]:
+            out[c] = out["date"].map(feat_valid[c]).astype("boolean").fillna(False).astype(bool)
 
-        out["reason"] = out["date"].map(feat_trim["reason"]).fillna("")
+        out["reason"] = out["date"].map(feat_valid["reason"]).fillna("")
+        out["regime"] = out["date"].map(feat_valid["regime"]).fillna("neutral")
 
+        # print(out[["date", "pred", "threshold", "position", "signal", "reason"]].tail(20))
         return out
 
     def populate_entry_trend(self, dataframe: DataFrame, metadata: dict) -> DataFrame:
@@ -571,16 +415,36 @@ class MlSignalStrategy(IStrategy):
         df["enter_long"] = 0
         df["enter_tag"] = None
 
-        df.loc[
-            (
-                (df["in_test_window"]) &
-                (df["position"] > 0) &
-                (df["volume"] > 0)
-            ),
-            ["enter_long", "enter_tag"]
-        ] = (1, "ml_long")
+        entry_cond = (
+            (df["in_test_window"]) &
+            (df["volume"] > 0) &
+            (df["signal"] == 1) &
+            (df["position"] > 0)
+        )
+
+        df.loc[entry_cond, "enter_long"] = 1
+        df.loc[entry_cond, "enter_tag"] = df.loc[entry_cond, "reason"]
 
         return df
+
+    def populate_entry_trend(self, dataframe: DataFrame, metadata: dict) -> DataFrame:
+        df = dataframe.copy()
+
+        df["enter_long"] = 0
+        df["enter_tag"] = None
+
+        entry_cond = (
+            (df["in_test_window"]) &
+            (df["volume"] > 0) &
+            (df["signal"] == 1) &
+            (df["position"] > 0)
+        )
+
+        df.loc[entry_cond, "enter_long"] = 1
+        df.loc[entry_cond, "enter_tag"] = df.loc[entry_cond, "reason"]
+
+        return df
+
 
     def populate_exit_trend(self, dataframe: DataFrame, metadata: dict) -> DataFrame:
         df = dataframe.copy()
@@ -588,47 +452,39 @@ class MlSignalStrategy(IStrategy):
         df["exit_long"] = 0
         df["exit_tag"] = None
 
+        has_volume = df["volume"] > 0
+
         pred_exit = df["adjusted_pred"] < float(self.sell_pred_threshold.value)
         imbalance_exit = df["imbalance_5"] < float(self.sell_imbalance_threshold.value)
 
-        # For mean-reversion entries, exit once price has reverted enough
         meanrev_reversion_exit = (
-            (df["reason"] == "meanrev_long")
-            & (df["dist_ma_15_z"] > float(self.sell_dist_z_threshold.value))
-        )
-
-        # Hard safety exit once outside model test window
-        test_window_exit = ~df["in_test_window"]
-
-        # Optional controller-derived exits
-        long_signal_loss_exit = (
-            bool(self.sell_on_long_signal_loss.value)
-            & (~df["long_signal"])
-        )
-
-        position_flip_exit = (
-            bool(self.sell_on_position_flip.value)
-            & (df["position"] <= 0)
-        )
-
-        exit_cond = (
-            (df["volume"] > 0)
-            & (
-                pred_exit
-                | imbalance_exit
-                | meanrev_reversion_exit
-                | test_window_exit
-                | long_signal_loss_exit
-                | position_flip_exit
+            (df["reason"] == "meanrev_long") &
+            (
+                (df["dist_ma_15_z"] > float(self.sell_dist_z_threshold.value)) |
+                (df["meanrev_exit_warn"])
             )
         )
 
-        df.loc[pred_exit & (df["volume"] > 0), "exit_tag"] = "pred_exit"
-        df.loc[imbalance_exit & (df["volume"] > 0), "exit_tag"] = "imbalance_exit"
-        df.loc[meanrev_reversion_exit & (df["volume"] > 0), "exit_tag"] = "meanrev_revert_exit"
-        df.loc[test_window_exit & (df["volume"] > 0), "exit_tag"] = "test_window_exit"
-        df.loc[long_signal_loss_exit & (df["volume"] > 0), "exit_tag"] = "long_signal_loss_exit"
-        df.loc[position_flip_exit & (df["volume"] > 0), "exit_tag"] = "position_flip_exit"
+        trend_momentum_exit = (
+            df["reason"].isin(["trend_long", "breakout_long"]) &
+            df["trend_exit_warn"]
+        )
+
+        test_window_exit = ~df["in_test_window"]
+
+        exit_cond = has_volume & (
+            pred_exit |
+            imbalance_exit |
+            meanrev_reversion_exit |
+            trend_momentum_exit |
+            test_window_exit
+        )
+
+        df.loc[pred_exit & has_volume, "exit_tag"] = "pred_exit"
+        df.loc[imbalance_exit & has_volume, "exit_tag"] = "imbalance_exit"
+        df.loc[trend_momentum_exit & has_volume, "exit_tag"] = "trend_momentum_exit"
+        df.loc[meanrev_reversion_exit & has_volume, "exit_tag"] = "meanrev_revert_exit"
+        df.loc[test_window_exit & has_volume, "exit_tag"] = "test_window_exit"
 
         df.loc[exit_cond, "exit_long"] = 1
 

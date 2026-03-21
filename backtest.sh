@@ -22,7 +22,7 @@ freqtrade backtesting \
   --config user_data/config.json \
   --strategy "$STRATEGY" \
   --data-format-ohlcv parquet \
-  --timerange 20260201-20260316 \
+  --timerange 20260210-20260316 \
   --export trades \
   --export-filename "$EXPORT_NAME"
 

@@ -16,33 +16,38 @@
     "max_open_trades": {
       "max_open_trades": 3
     },
-    "sell": {
-      "sell_dist_z_threshold": 0.0,
-      "sell_imbalance_threshold": 0.0,
-      "sell_on_long_signal_loss": false,
-      "sell_on_position_flip": false,
-      "sell_pred_threshold": 0.0
-    },
     "buy": {
-      "breakout_level": 1.08,
-      "buy_threshold": 0.022,
-      "confirm_min_imbalance": 0.07,
-      "confirm_soft_boost": 1.03,
-      "confirm_strong_boost": 1.06,
-      "imbalance_negative": -0.14,
-      "imbalance_soft": 0.0,
-      "imbalance_strong": 0.22,
-      "meanrev_dist_z": -2.9,
-      "meanrev_position_size": 0.31,
-      "mild_breakout_boost": 1.04,
-      "min_pred_history_delta": 114,
-      "negative_confirm_penalty": 0.95,
-      "pred_hist_window": 415,
-      "pred_quantile": 0.92,
-      "strong_breakout_boost": 1.01,
-      "strong_breakout_level": 1.43
+      "breakout_level": 1.07,
+      "breakout_macdhist_delta_min": -0.008,
+      "breakout_range_max": 0.79,
+      "buy_threshold": 0.011,
+      "confirm_min_imbalance": 0.01,
+      "confirm_soft_boost": 1.2,
+      "confirm_strong_boost": 1.04,
+      "imbalance_negative": -0.2,
+      "imbalance_soft": 0.03,
+      "imbalance_strong": 0.02,
+      "meanrev_dist_z": -2.05,
+      "meanrev_position_size": 0.92,
+      "meanrev_range_max": 0.26,
+      "meanrev_rsi_max": 45.0,
+      "mild_breakout_boost": 1.18,
+      "negative_confirm_penalty": 0.86,
+      "pred_hist_window": 26,
+      "pred_quantile": 0.61,
+      "strong_breakout_boost": 1.04,
+      "strong_breakout_level": 1.18,
+      "trend_macdhist_min": 0.028,
+      "trend_range_max": 0.86,
+      "trend_rsi_max": 59.2,
+      "trend_rsi_min": 55.2
+    },
+    "sell": {
+      "sell_dist_z_threshold": 1.47,
+      "sell_imbalance_threshold": -0.19,
+      "sell_pred_threshold": -0.09
     }
   },
   "ft_stratparam_v": 1,
-  "export_time": "2026-03-20 11:52:22.177152+00:00"
+  "export_time": "2026-03-21 11:02:55.136156+00:00"
 }
