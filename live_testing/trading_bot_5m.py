@@ -40,6 +40,12 @@ STATE_DIR = "live_testing/state"
 MAX_BARS = 2500
 MIN_BARS = 800
 
+PAIR_CONFIGS = [
+    {"pair": "AVAX/USD", "symbol": "AVAXUSDT", "coin": "AVAX"},
+    {"pair": "LINK/USD", "symbol": "LINKUSDT", "coin": "LINK"},
+    {"pair": "SOL/USD", "symbol": "SOLUSDT", "coin": "SOL"},
+]
+
 BUY_FEE_RATE = 0.000  # TO CHECK
 MAX_OPEN_POSITIONS = len(PAIR_CONFIGS)
 
@@ -83,12 +89,6 @@ TREND_MACDHIST_MIN = 0.028
 BREAKOUT_MACDHIST_DELTA_MIN = -0.008
 
 ALLOW_MEANREV_EDGE_RELAX = 0.0
-
-PAIR_CONFIGS = [
-    {"pair": "AVAX/USD", "symbol": "AVAXUSDT", "coin": "AVAX"},
-    {"pair": "LINK/USD", "symbol": "LINKUSDT", "coin": "LINK"},
-    {"pair": "SOL/USD", "symbol": "SOLUSDT", "coin": "SOL"},
-]
 
 order_lock = threading.Lock()
 
