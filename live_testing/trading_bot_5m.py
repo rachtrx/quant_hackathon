@@ -487,14 +487,14 @@ class CoinTrader:
     def get_usd_balance(self) -> float:
         balance = python_demo.get_balance()
         try:
-            return float(balance["Wallet"]["USD"]["Free"])
+            return float(balance["SpotWallet"]["USD"]["Free"])
         except Exception:
             return 0.0
 
     def get_coin_balance(self) -> float:
         balance = python_demo.get_balance()
         try:
-            return float(balance["Wallet"][self.cfg.coin]["Free"])
+            return float(balance["SpotWallet"][self.cfg.coin]["Free"])
         except Exception:
             return 0.0
 
