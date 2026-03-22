@@ -47,9 +47,9 @@ class MlSignalStrategy(IStrategy):
 
     USE_TIME_EXIT = False
 
-    buy_threshold = DecimalParameter(0.005, 0.080, default=0.030, decimals=3, space="buy", optimize=True, load=True)
+    buy_threshold = DecimalParameter(0.005, 0.080, default=0.015, decimals=3, space="buy", optimize=True, load=True)
     pred_hist_window = IntParameter(5, 100, default=10, space="buy", optimize=True, load=True)
-    pred_quantile = DecimalParameter(0.60, 0.95, default=0.80, decimals=2, space="buy", optimize=True, load=True)
+    pred_quantile = DecimalParameter(0.40, 0.95, default=0.80, decimals=2, space="buy", optimize=True, load=True)
     breakout_level = DecimalParameter(1.00, 1.30, default=1.10, decimals=2, space="buy", optimize=True, load=True)
     strong_breakout_level = DecimalParameter(1.05, 1.60, default=1.20, decimals=2, space="buy", optimize=True, load=True)
     mild_breakout_boost = DecimalParameter(1.00, 1.20, default=1.08, decimals=2, space="buy", optimize=True, load=True)
@@ -61,23 +61,24 @@ class MlSignalStrategy(IStrategy):
     confirm_strong_boost = DecimalParameter(1.00, 1.30, default=1.15, decimals=2, space="buy", optimize=True, load=True)
     negative_confirm_penalty = DecimalParameter(0.70, 1.00, default=0.85, decimals=2, space="buy", optimize=True, load=True)
     meanrev_dist_z = DecimalParameter(-3.00, -0.50, default=-1.00, decimals=2, space="buy", optimize=True, load=True)
-    confirm_min_imbalance = DecimalParameter(-0.05, 0.10, default=0.00, decimals=2, space="buy", optimize=True, load=True)
+    confirm_min_imbalance = DecimalParameter(-0.10, 0.10, default=0.00, decimals=2, space="buy", optimize=True, load=True)
     meanrev_position_size = DecimalParameter(0.25, 1.00, default=0.50, decimals=2, space="buy", optimize=True, load=True)
     sell_pred_threshold = DecimalParameter(-0.10, 0.05, default=0.00, decimals=3, space="sell", optimize=True, load=True)
     sell_imbalance_threshold = DecimalParameter(-0.20, 0.10, default=0.00, decimals=2, space="sell", optimize=True, load=True)
     sell_dist_z_threshold = DecimalParameter(-0.50, 1.50, default=0.00, decimals=2, space="sell", optimize=True, load=True)
 
-    trend_rsi_min = DecimalParameter(45.0, 60.0, default=50.0, decimals=1, space="buy")
-    trend_rsi_max = DecimalParameter(55.0, 75.0, default=68.0, decimals=1, space="buy")
+    trend_rsi_min = DecimalParameter(40.0, 60.0, default=50.0, decimals=1, space="buy")
+    trend_rsi_max = DecimalParameter(60.0, 80.0, default=68.0, decimals=1, space="buy")
 
-    meanrev_rsi_max = DecimalParameter(30.0, 45.0, default=40.0, decimals=1, space="buy")
+    meanrev_rsi_max = DecimalParameter(30.0, 60.0, default=40.0, decimals=1, space="buy")
 
-    meanrev_range_max = DecimalParameter(0.15, 0.50, default=0.35, decimals=2, space="buy")
+    meanrev_range_max = DecimalParameter(0.2, 0.7, default=0.35, decimals=2, space="buy")
     trend_range_max = DecimalParameter(0.55, 0.95, default=0.80, decimals=2, space="buy")
     breakout_range_max = DecimalParameter(0.70, 0.99, default=0.90, decimals=2, space="buy")
 
     trend_macdhist_min = DecimalParameter(-0.01, 0.05, default=0.00, decimals=3, space="buy")
     breakout_macdhist_delta_min = DecimalParameter(-0.01, 0.05, default=0.00, decimals=3, space="buy")
+    allow_meanrev_edge_relax = DecimalParameter(0.0, 0.05, default=0.00, decimals=2, space="buy")
 
     def bot_start(self, **kwargs) -> None:
         self._artifact_cache: dict[str, dict[str, Any]] = {}
@@ -339,7 +340,7 @@ class MlSignalStrategy(IStrategy):
             "breakout_macdhist_delta_min": float(self.breakout_macdhist_delta_min.value),
 
             # keep 0.0 initially unless you explicitly want looser meanrev entries
-            "allow_meanrev_edge_relax": 0.0,
+            "allow_meanrev_edge_relax": float(self.allow_meanrev_edge_relax.value),
         }
 
         def _apply_controller(row: pd.Series) -> pd.Series:

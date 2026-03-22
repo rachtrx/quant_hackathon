@@ -1,11 +1,9 @@
 {
   "strategy_name": "MlSignalStrategy",
   "params": {
-    "roi": {
-      "0": 100
-    },
+    "roi": {},
     "stoploss": {
-      "stoploss": -0.1
+      "stoploss": -0.99
     },
     "trailing": {
       "trailing_stop": false,
@@ -17,37 +15,38 @@
       "max_open_trades": 3
     },
     "buy": {
-      "breakout_level": 1.07,
-      "breakout_macdhist_delta_min": -0.008,
-      "breakout_range_max": 0.79,
-      "buy_threshold": 0.011,
-      "confirm_min_imbalance": 0.01,
-      "confirm_soft_boost": 1.2,
-      "confirm_strong_boost": 1.04,
-      "imbalance_negative": -0.2,
-      "imbalance_soft": 0.03,
-      "imbalance_strong": 0.02,
-      "meanrev_dist_z": -2.05,
-      "meanrev_position_size": 0.92,
-      "meanrev_range_max": 0.26,
-      "meanrev_rsi_max": 45.0,
-      "mild_breakout_boost": 1.18,
-      "negative_confirm_penalty": 0.86,
-      "pred_hist_window": 26,
-      "pred_quantile": 0.61,
-      "strong_breakout_boost": 1.04,
-      "strong_breakout_level": 1.18,
-      "trend_macdhist_min": 0.028,
-      "trend_range_max": 0.86,
-      "trend_rsi_max": 59.2,
-      "trend_rsi_min": 55.2
+      "allow_meanrev_edge_relax": 0.04,
+      "breakout_level": 1.16,
+      "breakout_macdhist_delta_min": -0.001,
+      "breakout_range_max": 0.97,
+      "buy_threshold": 0.026,
+      "confirm_min_imbalance": 0.06,
+      "confirm_soft_boost": 1.0,
+      "confirm_strong_boost": 1.13,
+      "imbalance_negative": -0.07,
+      "imbalance_soft": 0.13,
+      "imbalance_strong": 0.06,
+      "meanrev_dist_z": -0.63,
+      "meanrev_position_size": 0.78,
+      "meanrev_range_max": 0.32,
+      "meanrev_rsi_max": 30.0,
+      "mild_breakout_boost": 1.08,
+      "negative_confirm_penalty": 0.85,
+      "pred_hist_window": 19,
+      "pred_quantile": 0.63,
+      "strong_breakout_boost": 1.22,
+      "strong_breakout_level": 1.15,
+      "trend_macdhist_min": 0.027,
+      "trend_range_max": 0.75,
+      "trend_rsi_max": 72.4,
+      "trend_rsi_min": 49.3
     },
     "sell": {
-      "sell_dist_z_threshold": 1.47,
-      "sell_imbalance_threshold": -0.19,
-      "sell_pred_threshold": -0.09
+      "sell_dist_z_threshold": -0.33,
+      "sell_imbalance_threshold": -0.2,
+      "sell_pred_threshold": -0.013
     }
   },
   "ft_stratparam_v": 1,
-  "export_time": "2026-03-21 11:02:55.136156+00:00"
+  "export_time": "2026-03-22 22:29:32.340093+00:00"
 }

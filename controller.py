@@ -77,6 +77,10 @@ def controller(
 
     range_pos_20 = float(row.get("range_pos_20", 0.5))
 
+    enable_breakout = bool(params.get("enable_breakout", True))
+    enable_trend = bool(params.get("enable_trend", True))
+    enable_meanrev = bool(params.get("enable_meanrev", True))
+
     # ----------------------------
     # Breakout / imbalance boosts
     # ----------------------------
@@ -167,9 +171,9 @@ def controller(
     # ----------------------------
     long_confirm = imbalance_5 > confirm_min_imbalance
 
-    trend_long = trend_long_raw and trend_confluence and long_confirm
-    breakout_long = breakout_long_raw and breakout_confluence and long_confirm
-    meanrev_long = meanrev_long_raw and meanrev_confluence and long_confirm
+    trend_long = enable_trend and trend_long_raw and trend_confluence and long_confirm
+    breakout_long = enable_breakout and breakout_long_raw and breakout_confluence and long_confirm
+    meanrev_long = enable_meanrev and meanrev_long_raw and meanrev_confluence and long_confirm
 
     # ----------------------------
     # Position / reason

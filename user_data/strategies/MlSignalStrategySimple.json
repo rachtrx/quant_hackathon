@@ -1,0 +1,31 @@
+{
+  "strategy_name": "MlSignalStrategySimple",
+  "params": {
+    "roi": {},
+    "stoploss": {
+      "stoploss": -0.99
+    },
+    "trailing": {
+      "trailing_stop": false,
+      "trailing_stop_positive": null,
+      "trailing_stop_positive_offset": 0.0,
+      "trailing_only_offset_is_reached": false
+    },
+    "max_open_trades": {
+      "max_open_trades": 15
+    },
+    "buy": {
+      "buy_threshold": 0.03,
+      "max_range_pos": 0.7,
+      "min_imbalance": -0.05,
+      "min_rsi": 52.2,
+      "pred_hist_window": 40,
+      "pred_quantile": 0.79
+    },
+    "sell": {
+      "sell_threshold": -0.026
+    }
+  },
+  "ft_stratparam_v": 1,
+  "export_time": "2026-03-22 14:35:31.231343+00:00"
+}
