@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+from decimal import Decimal
 import json
 import os
 import sys
@@ -515,6 +516,13 @@ class CoinTrader:
         open_positions = self.count_open_positions()
         remaining = len(PAIR_CONFIGS) - open_positions
         return max(1, remaining)
+
+    @staticmethod
+    def round_to_step(qty: float, step: float) -> float:
+        qty_dec = Decimal(str(qty))
+        step_dec = Decimal(str(step))
+
+        return float((qty_dec // step_dec) * step_dec)
     
     def place_buy(
         self,
@@ -540,7 +548,7 @@ class CoinTrader:
         }
 
         qty_raw = (alloc_usd * (1 - BUY_FEE_RATE)) / current_price
-        qty = round_to_step(qty_raw, step_size_map[self.cfg.coin])
+        qty = self.round_to_step(qty_raw, step_size_map[self.cfg.coin])
 
         if qty <= 0:
             self.log(f"Rounded qty became zero. raw_qty={qty_raw}", level="warning")
