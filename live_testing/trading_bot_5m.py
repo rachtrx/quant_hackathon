@@ -564,6 +564,31 @@ class CoinTrader:
             )
             return None
 
+        position = PositionState(
+            qty=float(qty),
+            entry_price=float(current_price),
+            entry_time=pd.Timestamp.utcnow().isoformat(),
+            stake_pct=float(stake_pct),
+            pred=float(pred),
+            pred_proba=float(pred_proba),
+            entry_reason=str(entry_reason),
+        )
+
+        usd_balance_after = self.get_usd_balance()
+
+        self.log(
+            f"BUY filled qty={position.qty:.8f} {self.cfg.coin} "
+            f"entry≈{position.entry_price:.6f} "
+            f"stake_pct={position.stake_pct:.4f} "
+            f"pred={position.pred:.6f} "
+            f"pred_proba={position.pred_proba:.6f} "
+            f"reason={position.entry_reason} "
+            f"usd_balance={usd_balance_after:.2f}",
+            send_tele=True,
+        )
+
+        return position
+
     def market_sell_position(self) -> bool:
         if self.position is None:
             return False
