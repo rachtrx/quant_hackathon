@@ -6,22 +6,22 @@ MODEL_TYPES = ["rf", "xgb"]
 # DOT - low participation
 # LTC - dead liquidity vs others
 SYMBOLS = [
-    "BTCUSDT",
-    "ETHUSDT",
-    "BNBUSDT",
-    "XRPUSDT",
-    "SOLUSDT",
-    "LINKUSDT",
-    "AVAXUSDT",
+    # "BTCUSDT",
+    # "ETHUSDT",
+    # "BNBUSDT",
+    # "XRPUSDT",
+    # "SOLUSDT",
+    # "LINKUSDT",
+    # "AVAXUSDT",
 
-    # alpha layer
-    "APTUSDT",
-    "ARBUSDT",
+    # # alpha layer
+    # "APTUSDT",
+    # "ARBUSDT",
 
-    # optional
-    "OPUSDT",
-    "MATICUSDT",
-    "SUIUSDT",
+    # # optional
+    # "OPUSDT",
+    "POLUSDT",
+    # "SUIUSDT",
 
     # "ADAUSDT",
     # "DOTUSDT",
