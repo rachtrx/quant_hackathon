@@ -2,7 +2,32 @@ import os
 
 MODEL_TYPES = ["rf", "xgb"]
 
-SYMBOLS = ["BTCUSDT", "ETHUSDT", "ADAUSDT", "BNBUSDT", "XRPUSDT", "SOLUSDT", "LINKUSDT", "DOTUSDT", "LTCUSDT", "AVAXUSDT"]
+# ADA - slow, low edge
+# DOT - low participation
+# LTC - dead liquidity vs others
+SYMBOLS = [
+    "BTCUSDT",
+    "ETHUSDT",
+    "BNBUSDT",
+    "XRPUSDT",
+    "SOLUSDT",
+    "LINKUSDT",
+    "AVAXUSDT",
+
+    # alpha layer
+    "APTUSDT",
+    "ARBUSDT",
+
+    # optional
+    "OPUSDT",
+    "MATICUSDT",
+    "SUIUSDT",
+
+    # "ADAUSDT",
+    # "DOTUSDT",
+    # "LTCUSDT"
+]
+
 MARKET = "spot"          # "spot" or "futures/um"
 INTERVAL = "5m"
 MONTHS = [

@@ -80,17 +80,11 @@ class MlSignalStrategy(IStrategy):
     breakout_macdhist_delta_min = DecimalParameter(-0.01, 0.05, default=0.00, decimals=3, space="buy")
 
     def bot_start(self, **kwargs) -> None:
-        self._model_cache: dict[str, Any] = {}
-        self._feature_cache: dict[str, list[str]] = {}
+        self._artifact_cache: dict[str, dict[str, Any]] = {}
         self._meta_cache: dict[str, dict[str, Any]] = {}
         self._raw_cache: dict[str, pd.DataFrame] = {}
 
-        # models/xgb/...
         self.model_root = Path(MODEL_DIR) / self.MODEL_TYPE
-
-        # IMPORTANT:
-        # This must NOT be user_data/data/binance
-        # Put your rich 11-column raw parquet files somewhere else.
         self.raw_root = Path(DATA_DIR)
 
     def _pair_to_symbol(self, pair: str) -> str:
@@ -101,15 +95,11 @@ class MlSignalStrategy(IStrategy):
         # BTC/USDT -> BTC_USDT
         return pair.replace("/", "_").replace(":", "_")
 
-    def _load_pair_artifacts(self, pair: str) -> tuple[Any, list[str], dict[str, Any]]:
+    def _load_pair_artifacts(self, pair: str) -> tuple[dict[str, Any], dict[str, Any]]:
         symbol = self._pair_to_symbol(pair)
 
-        if symbol in self._model_cache:
-            return (
-                self._model_cache[symbol],
-                self._feature_cache[symbol],
-                self._meta_cache[symbol],
-            )
+        if symbol in self._artifact_cache:
+            return self._artifact_cache[symbol], self._meta_cache[symbol]
 
         meta_path = self.model_root / f"{symbol}__h{self.TARGET_HORIZON}_meta.json"
         if not meta_path.exists():
@@ -119,26 +109,30 @@ class MlSignalStrategy(IStrategy):
             meta = json.load(f)
 
         model_path = Path(meta["model_path"])
-        features_path = Path(meta["feature_cols_path"])
-
         if not model_path.exists():
             raise FileNotFoundError(f"Missing model file: {model_path}")
-        if not features_path.exists():
-            raise FileNotFoundError(f"Missing feature cols file: {features_path}")
 
-        model = joblib.load(model_path)
+        artifacts = joblib.load(model_path)
 
-        with open(features_path, "r", encoding="utf-8") as f:
-            feature_cols = json.load(f)
+        if not isinstance(artifacts, dict):
+            raise ValueError(
+                f"Expected artifact dict in {model_path}, got {type(artifacts)}"
+            )
+
+        required_keys = ["base_model", "calibrator", "selected_features"]
+        missing_keys = [k for k in required_keys if k not in artifacts]
+        if missing_keys:
+            raise ValueError(
+                f"Artifact file {model_path} missing keys: {missing_keys}"
+            )
 
         meta["test_start_time"] = pd.to_datetime(meta["test_start_time"], utc=True)
         meta["test_end_time"] = pd.to_datetime(meta["test_end_time"], utc=True)
 
-        self._model_cache[symbol] = model
-        self._feature_cache[symbol] = feature_cols
+        self._artifact_cache[symbol] = artifacts
         self._meta_cache[symbol] = meta
 
-        return model, feature_cols, meta
+        return artifacts, meta
 
     def _load_raw_pair_data(self, pair: str) -> pd.DataFrame:
         """
@@ -191,7 +185,10 @@ class MlSignalStrategy(IStrategy):
 
     def populate_indicators(self, dataframe: DataFrame, metadata: dict) -> DataFrame:
         pair = metadata["pair"]
-        model, feature_cols, meta = self._load_pair_artifacts(pair)
+        artifacts, meta = self._load_pair_artifacts(pair)
+
+        calibrator = artifacts["calibrator"]
+        feature_cols = artifacts["selected_features"]
 
         test_start_time = meta["test_start_time"]
         test_end_time = meta["test_end_time"]
@@ -282,7 +279,7 @@ class MlSignalStrategy(IStrategy):
             return out
 
         X = feat_valid[feature_cols]
-        feat_valid["pred_proba"] = model.predict_proba(X)[:, 1]
+        feat_valid["pred_proba"] = calibrator.predict_proba(X)[:, 1]
         # Convert probability into centered directional edge
         feat_valid["pred"] = feat_valid["pred_proba"] - 0.5
 
@@ -375,8 +372,6 @@ class MlSignalStrategy(IStrategy):
             "breakout_boost",
             "confirm_boost",
 
-            "imbalance_5",
-            "dist_ma_15_z",
             "rsi",
             "macd",
             "macdsignal",
@@ -384,6 +379,9 @@ class MlSignalStrategy(IStrategy):
             "rsi_slope",
             "macdhist_delta",
             "range_pos_20",
+            
+            "imbalance_5",
+            "dist_ma_15_z",
         ]
 
         for c in num_map_cols:
@@ -408,24 +406,6 @@ class MlSignalStrategy(IStrategy):
 
         # print(out[["date", "pred", "threshold", "position", "signal", "reason"]].tail(20))
         return out
-
-    def populate_entry_trend(self, dataframe: DataFrame, metadata: dict) -> DataFrame:
-        df = dataframe.copy()
-
-        df["enter_long"] = 0
-        df["enter_tag"] = None
-
-        entry_cond = (
-            (df["in_test_window"]) &
-            (df["volume"] > 0) &
-            (df["signal"] == 1) &
-            (df["position"] > 0)
-        )
-
-        df.loc[entry_cond, "enter_long"] = 1
-        df.loc[entry_cond, "enter_tag"] = df.loc[entry_cond, "reason"]
-
-        return df
 
     def populate_entry_trend(self, dataframe: DataFrame, metadata: dict) -> DataFrame:
         df = dataframe.copy()
