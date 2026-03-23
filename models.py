@@ -1,6 +1,30 @@
 import optuna
 import numpy as np
 import pandas as pd
+from scipy.stats import spearmanr
+
+def _safe_spearman_ic(y_score, fwd_ret) -> float:
+    try:
+        x = pd.Series(np.asarray(y_score), dtype=float)
+        y = pd.Series(np.asarray(fwd_ret), dtype=float)
+
+        valid = x.notna() & y.notna()
+        if valid.sum() < 3:
+            return 0.0
+
+        x = x[valid]
+        y = y[valid]
+
+        # constant arrays break correlation
+        if x.nunique() < 2 or y.nunique() < 2:
+            return 0.0
+
+        ic, _ = spearmanr(x, y)
+        if np.isnan(ic):
+            return 0.0
+        return float(ic)
+    except Exception:
+        return 0.0
 
 from sklearn.ensemble import RandomForestClassifier
 from xgboost import XGBClassifier
@@ -47,14 +71,18 @@ def _safe_brier(y_true, y_score) -> float:
         return 1e9
 
 
-def _compute_metrics(y_true, y_score) -> dict:
-    return {
+def _compute_metrics(y_true, y_score, fwd_ret=None) -> dict:
+    metrics = {
         "roc_auc": _safe_roc_auc(y_true, y_score),
         "pr_auc": _safe_pr_auc(y_true, y_score),
         "log_loss": _safe_log_loss(y_true, y_score),
         "brier": _safe_brier(y_true, y_score),
     }
 
+    if fwd_ret is not None:
+        metrics["spearman_ic"] = _safe_spearman_ic(y_score, fwd_ret)
+
+    return metrics
 
 def _objective_value(metrics: dict, objective_metric: str) -> float:
     if objective_metric == "roc_auc":
@@ -65,8 +93,9 @@ def _objective_value(metrics: dict, objective_metric: str) -> float:
         return -metrics["log_loss"]
     if objective_metric == "neg_brier":
         return -metrics["brier"]
+    if objective_metric == "spearman_ic":
+        return metrics["spearman_ic"]
     raise ValueError(f"Unsupported objective_metric: {objective_metric}")
-
 
 def _log_trial_metrics(trial: optuna.Trial, metrics: dict) -> None:
     for k, v in metrics.items():
@@ -91,7 +120,8 @@ def _rf_objective(
     y_train,
     X_valid,
     y_valid,
-    objective_metric: str = "roc_auc",
+    fwd_ret_valid=None,
+    objective_metric: str = "spearman_ic",
 ) -> float:
     params = {
         "n_estimators": trial.suggest_int("n_estimators", 200, 800, step=100),
@@ -119,13 +149,10 @@ def _rf_objective(
     model.fit(X_train, y_train)
 
     pred_valid = model.predict_proba(X_valid)[:, 1]
-    metrics = _compute_metrics(y_valid, pred_valid)
+    metrics = _compute_metrics(y_valid, pred_valid, fwd_ret_valid)
     _log_trial_metrics(trial, metrics)
 
     score = _objective_value(metrics, objective_metric)
-    trial.report(score, step=0)
-    if trial.should_prune():
-        raise optuna.TrialPruned()
 
     return score
 
@@ -136,27 +163,29 @@ def _xgb_objective(
     y_train,
     X_valid,
     y_valid,
-    objective_metric: str = "roc_auc",
+    fwd_ret_valid=None,
+    objective_metric: str = "spearman_ic",
 ) -> float:
     base_spw = _get_positive_class_weight(y_train)
 
     params = {
-        "n_estimators": trial.suggest_int("n_estimators", 200, 800, step=100),
-        "learning_rate": trial.suggest_float("learning_rate", 0.03, 0.1, log=True),
-        "max_depth": trial.suggest_int("max_depth", 3, 6),
+        "n_estimators": trial.suggest_int("n_estimators", 300, 900, step=100),
+        "learning_rate": trial.suggest_float("learning_rate", 0.01, 0.05, log=True),
+        "max_depth": trial.suggest_int("max_depth", 3, 5),
 
-        "subsample": trial.suggest_float("subsample", 0.7, 1.0),
-        "colsample_bytree": trial.suggest_float("colsample_bytree", 0.6, 1.0),
+        "subsample": trial.suggest_float("subsample", 0.65, 0.9),
+        "colsample_bytree": trial.suggest_float("colsample_bytree", 0.65, 0.9),
+        "colsample_bylevel": trial.suggest_float("colsample_bylevel", 0.65, 0.9),
 
-        "min_child_weight": trial.suggest_int("min_child_weight", 2, 10),
+        "min_child_weight": trial.suggest_int("min_child_weight", 5, 20),
+        "gamma": trial.suggest_float("gamma", 0.0, 3.0),
+        "reg_alpha": trial.suggest_float("reg_alpha", 1e-3, 3.0, log=True),
+        "reg_lambda": trial.suggest_float("reg_lambda", 1.0, 20.0, log=True),
 
-        "reg_lambda": trial.suggest_float("reg_lambda", 0.1, 10.0, log=True),
-
-        # keep ONLY if imbalance exists
         "scale_pos_weight": trial.suggest_float(
             "scale_pos_weight",
-            max(0.5, base_spw * 0.8),
-            max(1.5, base_spw * 1.2),
+            max(0.7, base_spw * 0.9),
+            max(1.3, base_spw * 1.1),
             log=True,
         ),
 
@@ -181,7 +210,7 @@ def _xgb_objective(
 
     pred_valid = model.predict_proba(X_valid)[:, 1]
 
-    metrics = _compute_metrics(y_valid, pred_valid)
+    metrics = _compute_metrics(y_valid, pred_valid, fwd_ret_valid)
     _log_trial_metrics(trial, metrics)
 
     best_iteration = getattr(model, "best_iteration", None)
@@ -189,10 +218,6 @@ def _xgb_objective(
         trial.set_user_attr("best_iteration", int(best_iteration))
 
     score = _objective_value(metrics, objective_metric)
-
-    trial.report(score, step=0)
-    if trial.should_prune():
-        raise optuna.TrialPruned()
 
     return score
 
@@ -238,6 +263,7 @@ def make_objective(
     y_train,
     X_valid,
     y_valid,
+    fwd_ret_valid=None,
     objective_metric: str = "roc_auc",
 ):
     if model_type not in OBJECTIVES:
@@ -250,6 +276,7 @@ def make_objective(
             y_train=y_train,
             X_valid=X_valid,
             y_valid=y_valid,
+            fwd_ret_valid=fwd_ret_valid,
             objective_metric=objective_metric,
         )
 
@@ -381,6 +408,7 @@ def tune_model(
     X_valid,
     y_valid,
     n_trials: int = 100,
+    fwd_ret_valid=None,
     objective_metric: str = "roc_auc",
     study_name: str | None = None,
     sampler_seed: int = 42,
@@ -397,6 +425,7 @@ def tune_model(
         y_train=y_train,
         X_valid=X_valid,
         y_valid=y_valid,
+        fwd_ret_valid=fwd_ret_valid,
         objective_metric=objective_metric,
     )
 
@@ -437,6 +466,7 @@ def tune_selected_features_only(
     y_train,
     X_valid: pd.DataFrame,
     y_valid,
+    fwd_ret_valid=None,
     n_trials: int = 100,
     objective_metric: str = "roc_auc",
     top_k: int | None = None,
@@ -465,6 +495,7 @@ def tune_selected_features_only(
         y_train=y_train,
         X_valid=X_valid_sel,
         y_valid=y_valid,
+        fwd_ret_valid=fwd_ret_valid,
         n_trials=n_trials,
         objective_metric=objective_metric,
         study_name=study_name,
@@ -489,11 +520,11 @@ def tune_selected_features_only(
 # =========================================================
 # Optional forward-return bucket diagnostic
 # =========================================================
-def make_bucket_table(pred, y_true, fwd_ret, n_bins: int = 10) -> pd.DataFrame:
+def make_bucket_table(pred, y_true, fwd_ret_test, n_bins: int = 10) -> pd.DataFrame:
     eval_df = pd.DataFrame({
         "pred": np.asarray(pred),
         "y_true": np.asarray(y_true),
-        "fwd_ret": np.asarray(fwd_ret),
+        "fwd_ret_test": np.asarray(fwd_ret_test),
     }).dropna()
 
     eval_df["pred_bin"] = pd.qcut(eval_df["pred"], n_bins, duplicates="drop")
@@ -501,9 +532,9 @@ def make_bucket_table(pred, y_true, fwd_ret, n_bins: int = 10) -> pd.DataFrame:
     bucket_stats = eval_df.groupby("pred_bin", observed=False).agg(
         mean_pred=("pred", "mean"),
         pos_rate=("y_true", "mean"),
-        mean_fwd_ret=("fwd_ret", "mean"),
-        std_fwd_ret=("fwd_ret", "std"),
-        count=("fwd_ret", "count"),
+        mean_fwd_ret=("fwd_ret_test", "mean"),
+        std_fwd_ret=("fwd_ret_test", "std"),
+        count=("fwd_ret_test", "count"),
     )
 
     return bucket_stats
@@ -525,16 +556,20 @@ def fit_final_model(
     X_valid_sel = X_valid[selected_features].copy()
 
     base_model = FINAL_MODEL_BUILDERS[model_type](best_params)
-    base_model.fit(X_train_sel, y_train)
-
-    calibrator = CalibratedClassifierCV(
-        estimator=FrozenEstimator(base_model),
-        method="sigmoid",
-    )
-    calibrator.fit(X_valid_sel, y_valid)
+    
+    if model_type == "xgb":
+        X_valid_sel = X_valid[selected_features].copy()
+        base_model.set_params(early_stopping_rounds=50)
+        base_model.fit(
+            X_train_sel,
+            y_train,
+            eval_set=[(X_valid_sel, y_valid)],
+            verbose=False,
+        )
+    else:
+        base_model.fit(X_train_sel, y_train)
 
     return {
         "base_model": base_model,
-        "calibrator": calibrator,
         "selected_features": selected_features,
     }

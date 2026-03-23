@@ -60,7 +60,7 @@ class MlSignalStrategy(IStrategy):
     confirm_soft_boost = DecimalParameter(1.00, 1.20, default=1.08, decimals=2, space="buy", optimize=True, load=True)
     confirm_strong_boost = DecimalParameter(1.00, 1.30, default=1.15, decimals=2, space="buy", optimize=True, load=True)
     negative_confirm_penalty = DecimalParameter(0.70, 1.00, default=0.85, decimals=2, space="buy", optimize=True, load=True)
-    meanrev_dist_z = DecimalParameter(-3.00, -0.50, default=-1.00, decimals=2, space="buy", optimize=True, load=True)
+    meanrev_dist_z = DecimalParameter(-2.50, -1.50, default=-1.00, decimals=2, space="buy", optimize=True, load=True)
     confirm_min_imbalance = DecimalParameter(-0.05, 0.10, default=0.00, decimals=2, space="buy", optimize=True, load=True)
     meanrev_position_size = DecimalParameter(0.25, 1.00, default=0.50, decimals=2, space="buy", optimize=True, load=True)
     sell_pred_threshold = DecimalParameter(-0.10, 0.05, default=0.00, decimals=3, space="sell", optimize=True, load=True)
@@ -311,6 +311,14 @@ class MlSignalStrategy(IStrategy):
         roll_high = feat_valid["high"].rolling(range_window).max()
         range_span = (roll_high - roll_low).replace(0, np.nan)
         feat_valid["range_pos_20"] = (feat_valid["close"] - roll_low) / range_span
+
+        dist_ma_15_mean_60 = feat_valid["dist_ma_15"].rolling(60).mean()
+        dist_ma_15_std_60 = feat_valid["dist_ma_15"].rolling(60).std()
+        feat_valid["dist_ma_15_z"] = (feat_valid["dist_ma_15"] - dist_ma_15_mean_60) / (dist_ma_15_std_60)
+        feat_valid["imbalance_5"] = feat_valid["imbalance"].rolling(5).mean()
+
+        thresh = feat_valid["trend_strength"].abs().rolling(200).quantile(0.7)
+        feat_valid["is_trending"] = (feat_valid["trend_strength"].abs() > thresh).astype(int)
 
         controller_params = {
             "buy_threshold": float(self.buy_threshold.value),
