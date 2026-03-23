@@ -48,3 +48,4 @@ binance_data/
 *.parquet
 live_testing/state
 live_testing/data
+old_models/
