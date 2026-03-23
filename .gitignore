@@ -46,6 +46,5 @@ binance_data/
 *.zip
 *.out
 *.parquet
-/models
 live_testing/state
 live_testing/data
