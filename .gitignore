@@ -47,3 +47,5 @@ binance_data/
 *.out
 *.parquet
 /models
+live_testing/state
+live_testing/data
