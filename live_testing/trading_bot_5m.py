@@ -42,8 +42,8 @@ MAX_BARS = 2500
 MIN_BARS = 800
 
 PAIR_CONFIGS = [
-    {"pair": "AVAX/USD", "symbol": "AVAXUSDT", "coin": "AVAX"},
-    {"pair": "LINK/USD", "symbol": "LINKUSDT", "coin": "LINK"},
+    {"pair": "BTC/USD", "symbol": "BTCUSDT", "coin": "BTC"},
+    {"pair": "ETH/USD", "symbol": "ETHUSDT", "coin": "ETH"},
     {"pair": "SOL/USD", "symbol": "SOLUSDT", "coin": "SOL"},
 ]
 
@@ -54,42 +54,46 @@ MAX_OPEN_POSITIONS = len(PAIR_CONFIGS)
 # HYPEROPT PARAMS
 ####################
 
-BUY_THRESHOLD = 0.011
-PRED_HIST_WINDOW = 26
-PRED_QUANTILE = 0.61
+####################
+# HYPEROPT PARAMS
+####################
 
-BREAKOUT_LEVEL = 1.07
-STRONG_BREAKOUT_LEVEL = 1.18
-MILD_BREAKOUT_BOOST = 1.18
-STRONG_BREAKOUT_BOOST = 1.04
+BUY_THRESHOLD = 0.013
+PRED_HIST_WINDOW = 68
+PRED_QUANTILE = 0.77
 
-IMBALANCE_SOFT = 0.03
-IMBALANCE_STRONG = 0.02
-IMBALANCE_NEGATIVE = -0.2
-CONFIRM_SOFT_BOOST = 1.2
-CONFIRM_STRONG_BOOST = 1.04
-NEGATIVE_CONFIRM_PENALTY = 0.86
+BREAKOUT_LEVEL = 1.10
+STRONG_BREAKOUT_LEVEL = 1.25
+MILD_BREAKOUT_BOOST = 1.06
+STRONG_BREAKOUT_BOOST = 1.19
 
-MEANREV_DIST_Z = -2.05
-CONFIRM_MIN_IMBALANCE = 0.01
-MEANREV_POSITION_SIZE = 0.92
+IMBALANCE_SOFT = 0.12
+IMBALANCE_STRONG = 0.05
+IMBALANCE_NEGATIVE = -0.20
+CONFIRM_SOFT_BOOST = 1.02
+CONFIRM_STRONG_BOOST = 1.25
+NEGATIVE_CONFIRM_PENALTY = 0.88
 
-SELL_PRED_THRESHOLD = 0.00
-SELL_IMBALANCE_THRESHOLD = 0.00
-SELL_DIST_Z_THRESHOLD = 0.00
+MEANREV_DIST_Z = -1.91
+CONFIRM_MIN_IMBALANCE = -0.07
+MEANREV_POSITION_SIZE = 0.75
 
-TREND_RSI_MIN = 55.2
-TREND_RSI_MAX = 59.2
-MEANREV_RSI_MAX = 45.0
+SELL_PRED_THRESHOLD = -0.042
+SELL_IMBALANCE_THRESHOLD = -0.16
+SELL_DIST_Z_THRESHOLD = 0.04
 
-MEANREV_RANGE_MAX = 0.26
-TREND_RANGE_MAX = 0.86
-BREAKOUT_RANGE_MAX = 0.79
+TREND_RSI_MIN = 48.6
+TREND_RSI_MAX = 77.7
+MEANREV_RSI_MAX = 45.2
 
-TREND_MACDHIST_MIN = 0.028
-BREAKOUT_MACDHIST_DELTA_MIN = -0.008
+MEANREV_RANGE_MAX = 0.69
+TREND_RANGE_MAX = 0.75
+BREAKOUT_RANGE_MAX = 0.94
 
-ALLOW_MEANREV_EDGE_RELAX = 0.0
+TREND_MACDHIST_MIN = 0.029
+BREAKOUT_MACDHIST_DELTA_MIN = 0.019
+
+ALLOW_MEANREV_EDGE_RELAX = 0.03
 
 order_lock = threading.Lock()
 
@@ -127,7 +131,6 @@ class CoinTrader:
         self.meta = self.load_meta()
 
         self.model_path = self.meta["model_path"]
-        self.features_path = self.meta["feature_cols_path"]
         self.target_horizon = TARGET_HORIZON
 
         self.parquet_path = os.path.join(DATA_DIR, f"{cfg.symbol}_{INTERVAL}_live.parquet")
@@ -136,7 +139,7 @@ class CoinTrader:
         )
 
         self.ensure_dirs()
-        self.model, self.feature_cols = self.load_model_and_features()
+        self.model, self.feature_cols, self.loaded_artifacts = self.load_model_and_features()
         self.df = self.load_initial_data()
         self.position = self.load_position_state()
 
@@ -180,13 +183,30 @@ class CoinTrader:
     def load_model_and_features(self):
         if not os.path.exists(self.model_path):
             raise FileNotFoundError(f"Model file not found: {self.model_path}")
-        if not os.path.exists(self.features_path):
-            raise FileNotFoundError(f"Feature cols file not found: {self.features_path}")
 
-        model = joblib.load(self.model_path)
-        with open(self.features_path, "r", encoding="utf-8") as f:
-            feature_cols = json.load(f)
-        return model, feature_cols
+        artifacts = joblib.load(self.model_path)
+
+        # Case 1: new artifact format like freqtrade strategy expects
+        predictor = artifacts.get("calibrator")
+        feature_cols = artifacts.get("selected_features")
+
+        if predictor is None:
+            raise ValueError(
+                f"Artifact dict at {self.model_path} missing both 'calibrator' and 'base_model'."
+            )
+
+        if feature_cols is None:
+            # fallback to separate feature file if still present
+            if self.features_path and os.path.exists(self.features_path):
+                with open(self.features_path, "r", encoding="utf-8") as f:
+                    feature_cols = json.load(f)
+            else:
+                raise ValueError(
+                    f"Artifact dict at {self.model_path} missing 'selected_features', "
+                    f"and no valid feature_cols_path found in meta."
+                )
+
+        return predictor, feature_cols, artifacts
 
     def load_initial_data(self) -> pd.DataFrame:
         if os.path.exists(self.parquet_path):
