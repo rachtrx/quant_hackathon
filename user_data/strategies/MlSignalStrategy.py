@@ -60,7 +60,7 @@ class MlSignalStrategy(IStrategy):
     confirm_soft_boost = DecimalParameter(1.00, 1.20, default=1.08, decimals=2, space="buy", optimize=True, load=True)
     confirm_strong_boost = DecimalParameter(1.00, 1.30, default=1.15, decimals=2, space="buy", optimize=True, load=True)
     negative_confirm_penalty = DecimalParameter(0.70, 1.00, default=0.85, decimals=2, space="buy", optimize=True, load=True)
-    meanrev_dist_z = DecimalParameter(-3.00, -0.50, default=-1.00, decimals=2, space="buy", optimize=True, load=True)
+    meanrev_dist_z = DecimalParameter(-2.50, -1.50, default=-1.00, decimals=2, space="buy", optimize=True, load=True)
     confirm_min_imbalance = DecimalParameter(-0.10, 0.10, default=0.00, decimals=2, space="buy", optimize=True, load=True)
     meanrev_position_size = DecimalParameter(0.25, 1.00, default=0.50, decimals=2, space="buy", optimize=True, load=True)
     sell_pred_threshold = DecimalParameter(-0.10, 0.05, default=0.00, decimals=3, space="sell", optimize=True, load=True)
