@@ -14,13 +14,13 @@ SYMBOLS = [
     # "LINKUSDT",
     # "AVAXUSDT",
 
-    # alpha layer
+    # # alpha layer
     # "APTUSDT",
     # "ARBUSDT",
 
-    # optional
+    # # optional
     # "OPUSDT",
-    "MATICUSDT",
+    "POLUSDT",
     # "SUIUSDT",
 
     # "ADAUSDT",
