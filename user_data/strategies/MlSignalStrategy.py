@@ -119,7 +119,7 @@ class MlSignalStrategy(IStrategy):
                 f"Expected artifact dict in {model_path}, got {type(artifacts)}"
             )
 
-        required_keys = ["base_model", "calibrator", "selected_features"]
+        required_keys = ["base_model", "selected_features"]
         missing_keys = [k for k in required_keys if k not in artifacts]
         if missing_keys:
             raise ValueError(
@@ -187,7 +187,7 @@ class MlSignalStrategy(IStrategy):
         pair = metadata["pair"]
         artifacts, meta = self._load_pair_artifacts(pair)
 
-        calibrator = artifacts["calibrator"]
+        model = artifacts["base_model"]
         feature_cols = artifacts["selected_features"]
 
         test_start_time = meta["test_start_time"]
@@ -279,7 +279,7 @@ class MlSignalStrategy(IStrategy):
             return out
 
         X = feat_valid[feature_cols]
-        feat_valid["pred_proba"] = calibrator.predict_proba(X)[:, 1]
+        feat_valid["pred_proba"] = model.predict_proba(X)[:, 1]
         # Convert probability into centered directional edge
         feat_valid["pred"] = feat_valid["pred_proba"] - 0.5
 

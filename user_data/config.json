@@ -1,7 +1,7 @@
 
 {
     "$schema": "https://schema.freqtrade.io/schema.json",
-    "max_open_trades": 3,
+    "max_open_trades": 12,
     "stake_currency": "USDT",
     "stake_amount": 5000,
     "tradable_balance_ratio": 0.99,
@@ -43,18 +43,32 @@
         "BTC/USDT",
         "ETH/USDT",
         "BNB/USDT",
-        "ADA/USDT",
         "XRP/USDT",
-        "AVAX/USDT",
-        "DOT/USDT",
+        "SOL/USDT",
         "LINK/USDT",
-        "LTC/USDT",
-        "SOL/USDT"
+        "AVAX/USDT",
+        "APT/USDT",
+        "ARB/USDT",
+        "OP/USDT",
+        "POL/USDT",
+        "SUI/USDT",
+        "ADA/USDT",
+        "DOT/USDT",
+        "LTC/USDT"
       ],
       "pair_whitelist": [
-        "AVAX/USDT",
+        "BTC/USDT",
+        "ETH/USDT",
+        "BNB/USDT",
+        "XRP/USDT",
+        "SOL/USDT",
         "LINK/USDT",
-        "SOL/USDT"
+        "AVAX/USDT",
+        "APT/USDT",
+        "ARB/USDT",
+        "OP/USDT",
+        "POL/USDT",
+        "SUI/USDT"
       ],
       "pair_blacklist": []
     },

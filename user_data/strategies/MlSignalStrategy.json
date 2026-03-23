@@ -14,40 +14,40 @@
       "trailing_only_offset_is_reached": false
     },
     "max_open_trades": {
-      "max_open_trades": 3
+      "max_open_trades": 12
     },
     "buy": {
-      "breakout_level": 1.07,
-      "breakout_macdhist_delta_min": -0.008,
-      "breakout_range_max": 0.79,
-      "buy_threshold": 0.011,
+      "breakout_level": 1.04,
+      "breakout_macdhist_delta_min": 0.002,
+      "breakout_range_max": 0.92,
+      "buy_threshold": 0.054,
       "confirm_min_imbalance": 0.01,
-      "confirm_soft_boost": 1.2,
-      "confirm_strong_boost": 1.04,
-      "imbalance_negative": -0.2,
-      "imbalance_soft": 0.03,
-      "imbalance_strong": 0.02,
-      "meanrev_dist_z": -2.05,
-      "meanrev_position_size": 0.92,
-      "meanrev_range_max": 0.26,
-      "meanrev_rsi_max": 45.0,
-      "mild_breakout_boost": 1.18,
-      "negative_confirm_penalty": 0.86,
-      "pred_hist_window": 26,
-      "pred_quantile": 0.61,
-      "strong_breakout_boost": 1.04,
-      "strong_breakout_level": 1.18,
-      "trend_macdhist_min": 0.028,
-      "trend_range_max": 0.86,
-      "trend_rsi_max": 59.2,
-      "trend_rsi_min": 55.2
+      "confirm_soft_boost": 1.01,
+      "confirm_strong_boost": 1.28,
+      "imbalance_negative": -0.02,
+      "imbalance_soft": 0.1,
+      "imbalance_strong": 0.09,
+      "meanrev_dist_z": -1.99,
+      "meanrev_position_size": 0.75,
+      "meanrev_range_max": 0.22,
+      "meanrev_rsi_max": 32.4,
+      "mild_breakout_boost": 1.16,
+      "negative_confirm_penalty": 0.9,
+      "pred_hist_window": 61,
+      "pred_quantile": 0.77,
+      "strong_breakout_boost": 1.16,
+      "strong_breakout_level": 1.14,
+      "trend_macdhist_min": -0.005,
+      "trend_range_max": 0.88,
+      "trend_rsi_max": 73.3,
+      "trend_rsi_min": 47.1
     },
     "sell": {
-      "sell_dist_z_threshold": 1.47,
-      "sell_imbalance_threshold": -0.19,
-      "sell_pred_threshold": -0.09
+      "sell_dist_z_threshold": -0.04,
+      "sell_imbalance_threshold": -0.03,
+      "sell_pred_threshold": -0.028
     }
   },
   "ft_stratparam_v": 1,
-  "export_time": "2026-03-21 11:02:55.136156+00:00"
+  "export_time": "2026-03-23 07:49:34.990351+00:00"
 }
