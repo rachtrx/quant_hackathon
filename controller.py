@@ -249,6 +249,9 @@ def controller(
         "long_confirm": long_confirm,
         "meanrev_exit_warn": bool(meanrev_exit_warn),
         "trend_exit_warn": bool(trend_exit_warn),
+        "meanrev_confluence": bool(meanrev_confluence),
+        "trend_confluence": bool(trend_confluence),
+        "breakout_confluence": bool(breakout_confluence),
 
         # labels
         "regime": regime,
