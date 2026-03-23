@@ -1,5 +1,5 @@
 import pandas as pd
-
+import numpy as np
 
 def controller(
     row: pd.Series,
@@ -18,6 +18,22 @@ def controller(
     params contains hyperoptable controller settings from the strategy.
     """
     params = params or {}
+
+    def _get_float(*keys, default=0.0) -> float:
+        for k in keys:
+            if k in row and pd.notna(row[k]):
+                try:
+                    return float(row[k])
+                except Exception:
+                    pass
+        return float(default)
+
+    def _get_bool_flag(key: str, default: bool = False) -> bool:
+        val = row.get(key, int(default))
+        try:
+            return bool(val == 1 or val is True)
+        except Exception:
+            return default
 
     # ----------------------------
     # Core thresholds / boosts
@@ -41,7 +57,7 @@ def controller(
     meanrev_position_size = float(params.get("meanrev_position_size", 0.5))
 
     # ----------------------------
-    # New confluence / anti-chase params
+    # Confluence / anti-chase params
     # ----------------------------
     meanrev_range_max = float(params.get("meanrev_range_max", 0.35))
     trend_range_max = float(params.get("trend_range_max", 0.80))
@@ -50,32 +66,34 @@ def controller(
     meanrev_rsi_max = float(params.get("meanrev_rsi_max", 40.0))
     trend_rsi_min = float(params.get("trend_rsi_min", 50.0))
     trend_rsi_max = float(params.get("trend_rsi_max", 68.0))
+    breakout_rsi_max = float(params.get("breakout_rsi_max", trend_rsi_max + 5.0))
 
     trend_macdhist_min = float(params.get("trend_macdhist_min", 0.0))
     breakout_macdhist_delta_min = float(params.get("breakout_macdhist_delta_min", 0.0))
 
-    # Optional looseness for meanrev. Keep at 0.0 first.
     allow_meanrev_edge_relax = float(params.get("allow_meanrev_edge_relax", 0.0))
+
+    # breakout_requires_trending = bool(params.get("breakout_requires_trending", False))
 
     # ----------------------------
     # Raw row inputs
     # ----------------------------
-    is_trending = bool(row.get("is_trending", 0) == 1)
+    is_trending = _get_bool_flag("is_trending", False)
     is_ranging = not is_trending
 
-    vol_ratio = float(row.get("vol_ratio_5_30", 1.0))
-    dist_z = float(row.get("dist_ma_15_z", 0.0))
-    imbalance_5 = float(row.get("imbalance_5", 0.0))
+    vol_ratio = _get_float("vol_ratio_5_30", default=1.0)
+    dist_z = _get_float("dist_ma_15_z", default=0.0)
+    imbalance_5 = _get_float("imbalance_5", default=0.0)
 
-    rsi = float(row.get("rsi", float("nan")))
-    rsi_slope = float(row.get("rsi_slope", 0.0))
+    rsi = _get_float("rsi", default=np.nan)
+    rsi_slope = _get_float("rsi_slope", default=0.0)
 
-    macd = float(row.get("macd", 0.0))
-    macdsignal = float(row.get("macdsignal", 0.0))
-    macdhist = float(row.get("macdhist", 0.0))
-    macdhist_delta = float(row.get("macdhist_delta", 0.0))
+    macd = _get_float("macd", default=0.0)
+    macd_signal = _get_float("macd_signal", "macdsignal", default=0.0)
+    macd_hist = _get_float("macd_hist", "macdhist", default=0.0)
+    macdhist_delta = _get_float("macdhist_delta", default=0.0)
 
-    range_pos_20 = float(row.get("range_pos_20", 0.5))
+    range_pos_20 = _get_float("range_pos_20", "close_pos_in_bar", default=0.5)
 
     # ----------------------------
     # Breakout / imbalance boosts
@@ -98,9 +116,6 @@ def controller(
 
     adjusted_pred = pred * breakout_boost * confirm_boost
 
-    # Use the stricter of:
-    # - rolling threshold from recent prediction history
-    # - static minimum threshold
     eff_threshold = max(float(threshold), buy_threshold)
 
     # ----------------------------
@@ -108,11 +123,24 @@ def controller(
     # ----------------------------
     regime = "neutral"
 
+    breakout_structure_ok = (
+        macd > macd_signal
+        and (pd.isna(rsi) or rsi > trend_rsi_min)
+    )
+
+    trend_structure_ok = (
+        macd > macd_signal
+        and (pd.isna(rsi) or rsi > trend_rsi_min)
+    )
+
     if is_ranging and (not is_breakout) and dist_z < meanrev_dist_z:
         regime = "meanrev"
-    elif is_breakout and macd > macdsignal and rsi > trend_rsi_min:
+    elif is_breakout and breakout_structure_ok: # and (
+    #     (not breakout_requires_trending) or
+    #     is_trending
+    # ):
         regime = "breakout"
-    elif is_trending and macd > macdsignal and rsi > trend_rsi_min:
+    elif is_trending and trend_structure_ok:
         regime = "trend"
 
     # ----------------------------
@@ -137,28 +165,23 @@ def controller(
     # Confluence filters
     # ----------------------------
     meanrev_confluence = (
-        pd.notna(rsi)
-        and (range_pos_20 < meanrev_range_max)
-        and (rsi < meanrev_rsi_max)
-        and (rsi_slope > 0)
-        and (macdhist_delta > 0)
+        (range_pos_20 < meanrev_range_max)
+        and (pd.isna(rsi) or rsi < meanrev_rsi_max)
+        and (rsi_slope >= 0)
+        and (macdhist_delta >= 0)
     )
 
     trend_confluence = (
-        pd.notna(rsi)
-        and (range_pos_20 < trend_range_max)
-        and (rsi > trend_rsi_min)
-        and (rsi < trend_rsi_max)
-        and (macd > macdsignal)
-        and (macdhist > trend_macdhist_min)
+        (range_pos_20 < trend_range_max)
+        and (pd.isna(rsi) or ((rsi > trend_rsi_min) and (rsi < trend_rsi_max)))
+        and (macd > macd_signal)
+        and (macd_hist > trend_macdhist_min)
     )
 
     breakout_confluence = (
-        pd.notna(rsi)
-        and (range_pos_20 < breakout_range_max)
-        and (rsi > trend_rsi_min)
-        and (rsi < trend_rsi_max + 5.0)
-        and (macd > macdsignal)
+        (range_pos_20 < breakout_range_max)
+        and (pd.isna(rsi) or ((rsi > trend_rsi_min) and (rsi < breakout_rsi_max)))
+        and (macd > macd_signal)
         and (macdhist_delta > breakout_macdhist_delta_min)
     )
 
@@ -189,14 +212,12 @@ def controller(
 
     # ----------------------------
     # Exit warning flags
-    # These are not forced exits by themselves;
-    # strategy can combine them with hard exits.
     # ----------------------------
     meanrev_exit_warn = (
         reason == "meanrev_long"
         and (
             (range_pos_20 > 0.60)
-            or (rsi > 58.0)
+            or (pd.notna(rsi) and rsi > 58.0)
             or (macdhist_delta < 0)
         )
     )
@@ -204,7 +225,7 @@ def controller(
     trend_exit_warn = (
         reason in {"trend_long", "breakout_long"}
         and (
-            ((macdhist < 0) and (rsi < 50.0))
+            ((macd_hist < 0) and (pd.isna(rsi) or rsi < 50.0))
             or (macdhist_delta < 0)
         )
     )
@@ -228,9 +249,6 @@ def controller(
         "long_confirm": long_confirm,
         "meanrev_exit_warn": bool(meanrev_exit_warn),
         "trend_exit_warn": bool(trend_exit_warn),
-        "meanrev_confluence": bool(meanrev_confluence),
-        "trend_confluence": bool(trend_confluence),
-        "breakout_confluence": bool(breakout_confluence),
 
         # labels
         "regime": regime,
