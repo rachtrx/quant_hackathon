@@ -563,10 +563,18 @@ class CoinTrader:
                 send_tele=True,
             )
             return None
+        
+        detail = buy_resp.get("OrderDetail")
+        if not detail:
+            self.log(f"BUY response missing OrderDetail: {buy_resp}", level="error", send_tele=True)
+            return None
+
+        filled_qty = float(detail["FilledQuantity"])
+        filled_avg_price = float(detail["FilledAverPrice"])
 
         position = PositionState(
-            qty=float(qty),
-            entry_price=float(current_price),
+            qty=filled_qty,
+            entry_price=filled_avg_price,
             entry_time=pd.Timestamp.utcnow().isoformat(),
             stake_pct=float(stake_pct),
             pred=float(pred),
@@ -576,22 +584,25 @@ class CoinTrader:
 
         usd_balance_after = self.get_usd_balance()
 
+        fee = float(detail.get("CommissionChargeValue", 0.0))
+
         self.log(
-            f"BUY filled qty={position.qty:.8f} {self.cfg.coin} "
-            f"entry≈{position.entry_price:.6f} "
-            f"stake_pct={position.stake_pct:.4f} "
-            f"pred={position.pred:.6f} "
-            f"pred_proba={position.pred_proba:.6f} "
-            f"reason={position.entry_reason} "
+            f"BUY filled qty={filled_qty:.8f} {self.cfg.coin} "
+            f"entry={filled_avg_price:.6f} "
+            f"fee={fee:.6f} {detail.get('CommissionCoin', 'USD')} "
+            f"stake_pct={stake_pct:.4f} "
+            f"pred={pred:.6f} "
+            f"pred_proba={pred_proba:.6f} "
+            f"reason={entry_reason}",
             f"usd_balance={usd_balance_after:.2f}",
             send_tele=True,
         )
 
         return position
 
-    def market_sell_position(self) -> bool:
+    def market_sell_position(self) -> Optional[dict[str, Any]]:
         if self.position is None:
-            return False
+            return None
 
         sell_resp = python_demo.place_order(
             self.cfg.coin,
@@ -599,10 +610,16 @@ class CoinTrader:
             self.position.qty,
         )
 
-        ok = isinstance(sell_resp, dict) and sell_resp.get("Success")
-        if not ok:
+        if not isinstance(sell_resp, dict) or not sell_resp.get("Success"):
             self.log(f"SELL failed: {sell_resp}", level="error", send_tele=True)
-        return ok
+            return None
+
+        detail = sell_resp.get("OrderDetail")
+        if not detail:
+            self.log(f"SELL response missing OrderDetail: {sell_resp}", level="error", send_tele=True)
+            return None
+
+        return detail
 
     def check_position_exit(self, sig: dict[str, Any]) -> Optional[str]:
         if self.position is None:
@@ -633,11 +650,19 @@ class CoinTrader:
         if not (pred_exit or imbalance_exit or meanrev_reversion_exit or trend_momentum_exit):
             return None
 
-        ok = self.market_sell_position()
-        if not ok:
+        detail = self.market_sell_position()
+        if detail is None:
             return None
 
-        approx_pnl = (live_price - self.position.entry_price) * self.position.qty
+        filled_qty = float(detail["FilledQuantity"])
+        filled_avg_price = float(detail["FilledAverPrice"])
+        fee = float(detail.get("CommissionChargeValue", 0.0))
+        fee_coin = detail.get("CommissionCoin", "USD")
+
+        approx_pnl = (filled_avg_price - self.position.entry_price) * filled_qty
+        if fee_coin == "USD":
+            approx_pnl -= fee
+
         usd_balance = self.get_usd_balance()
 
         if pred_exit:
@@ -650,13 +675,14 @@ class CoinTrader:
             exit_reason = "trend_momentum_exit"
 
         self.log(
-            f"EXIT {exit_reason} qty={self.position.qty:.8f} {self.cfg.coin} "
+            f"EXIT {exit_reason} qty={filled_qty:.8f} {self.cfg.coin} "
             f"entry={self.position.entry_price:.6f} "
-            f"exit≈{live_price:.6f} "
+            f"exit={filled_avg_price:.6f} "
             f"pnl≈{approx_pnl:.6f} "
             f"adj_pred={sig['adjusted_pred']:.6f} "
             f"imbalance_5={sig['imbalance_5']:.6f} "
             f"dist_z={sig['dist_ma_15_z']:.6f} "
+            f"fee={fee:.6f} {fee_coin} "
             f"usd_balance={usd_balance:.2f}",
             send_tele=True,
         )

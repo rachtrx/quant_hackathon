@@ -235,5 +235,5 @@ if __name__ == '__main__':
     print(get_balance()) 
     # print(place_order("BNB", "BUY", 200000))
     # print(cancel_order())
-    #print(query_order())
+    # print(query_order())
     # print(pending_count())
