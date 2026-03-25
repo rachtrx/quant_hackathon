@@ -1,6 +1,7 @@
 import os
 
-MODEL_TYPES = ["rf", "xgb"]
+# MODEL_TYPES = ["rf", "xgb"]
+MODEL_TYPES = ["rf"]
 
 SYMBOLS = ["BTCUSDT", "ETHUSDT", "ADAUSDT", "BNBUSDT", "XRPUSDT", "SOLUSDT", "LINKUSDT", "DOTUSDT", "LTCUSDT", "AVAXUSDT"]
 MARKET = "spot"          # "spot" or "futures/um"
@@ -16,7 +17,7 @@ MONTHS = [
 
 BINANCE_SPOT_KLINES_API_URL = "https://data-api.binance.vision/api/v3/klines"
 BINANCE_SPOT_KLINES_VISION_URL = "https://data.binance.vision/data/spot"
-TARGET_HORIZON = 5
+TARGET_HORIZON = 6
 
 DATA_DIR = "binance_data"
 MODEL_DIR = "models"

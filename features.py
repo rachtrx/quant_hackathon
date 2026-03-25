@@ -5,7 +5,6 @@ import pandas as pd
 
 EPS = 1e-12
 
-
 def calc_trend_strength(df: pd.DataFrame) -> pd.Series:
     returns = df["close"].pct_change(1)
     mean_20 = returns.rolling(20).mean()
@@ -39,14 +38,15 @@ def add_features(df: pd.DataFrame, target_horizon: int) -> tuple[pd.DataFrame, l
     vol_windows = [5, 15, 30, 60]
     ma_windows = [5, 15, 30, 60]
 
-    df["target"] = df["close"].shift(-target_horizon) / df["close"] - 1.0
-    df[f"target_ret_fwd_{target_horizon}"] = df["target"]
+    fwd_ret = df["close"].shift(-target_horizon) / df["close"] - 1.0
+    df[f"target_ret_fwd_{target_horizon}"] = fwd_ret
+    df[f"target_{target_horizon}"] = (fwd_ret > 0).astype(int)
 
     for w in mom_windows:
-        df[f"mom_{w}"] = df["close"].pct_change(w)
+        df[f"mom_{w}"] = df["close"].pct_change(w, fill_method=None)
 
-    df["volume_mom_5"] = df["volume"].pct_change(5)
-    df["num_trades_mom_5"] = df["num_trades"].pct_change(5)
+    df["volume_mom_5"] = df["volume"].pct_change(5, fill_method=None)
+    df["num_trades_mom_5"] = df["num_trades"].pct_change(5, fill_method=None)
 
     for w in vol_windows:
         df[f"vol_{w}"] = df["ret_1"].rolling(w).std()

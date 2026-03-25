@@ -11,7 +11,7 @@ def _rf_objective(trial: optuna.Trial, X_train, y_train, X_valid, y_valid) -> fl
         "n_estimators": trial.suggest_int("n_estimators", 100, 800, step=100),
         "max_depth": trial.suggest_int("max_depth", 3, 20),
         "min_samples_split": trial.suggest_int("min_samples_split", 2, 30),
-        "min_samples_leaf": trial.suggest_int("min_samples_leaf", 1, 20),
+        "min_samples_leaf": trial.suggest_int("min_samples_leaf", 20, 50),
         "max_features": trial.suggest_categorical(
             "max_features", ["sqrt", "log2", 0.3, 0.5, 0.8, 1.0]
         ),

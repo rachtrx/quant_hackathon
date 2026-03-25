@@ -43,6 +43,9 @@ user_data/hyperopt_results
 user_data/plot
 binance_data/
 *.log
-*.fthypt
-*.pkl
-/models
+*.zip
+*.out
+*.parquet
+live_testing/state
+live_testing/data
+old_models/
