@@ -563,8 +563,8 @@ class CoinTrader:
 
         step_size_map = {
             "SOL": 0.01,
-            "LINK": 0.01,
-            "AVAX": 0.01,
+            "ETH": 0.01,
+            "BTC": 0.01,
         }
 
         qty_raw = (alloc_usd * (1 - BUY_FEE_RATE)) / current_price
