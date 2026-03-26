@@ -624,10 +624,12 @@ class CoinTrader:
         if self.position is None:
             return None
 
+        qty = self.get_coin_balance()
+
         sell_resp = python_demo.place_order(
             self.cfg.coin,
             "SELL",
-            self.position.qty,
+            qty,
         )
 
         if not isinstance(sell_resp, dict) or not sell_resp.get("Success"):

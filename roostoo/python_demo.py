@@ -231,8 +231,8 @@ def pending_count():
 if __name__ == '__main__':
     # print(get_server_time())
     # print(get_ex_info())
-    # print(get_ticker())
-    print(get_balance()) 
+    print(get_ticker("BTC/USD"))
+    # print(get_balance()) 
     # print(place_order("BNB", "BUY", 200000))
     # print(cancel_order())
     # print(query_order())
